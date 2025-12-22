@@ -7,6 +7,24 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+if [ ! -f /etc/os-release ]; then
+  echo "/etc/os-release missing, cannot determine OS"
+  exit 1
+fi
+
+. /etc/os-release
+
+case "$ID" in
+  debian|ubuntu|pve|proxmox)
+    echo "Compatible OS detected: $ID"
+    ;;
+  *)
+    echo "Unsupported OS detected: $ID"
+    echo "This installer only supports Debian, Ubuntu, or Proxmox"
+    exit 1
+    ;;
+esac
+
 apt-get update
 apt-get install -y git curl nano
 
