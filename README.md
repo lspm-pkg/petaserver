@@ -3,19 +3,19 @@
 
 ---
 
-# How does it work
+## How does it work
 
 It uses discord and some HTTP stuff to make an API server which then a client like [ours](https://github.com/lspm-pkg/petaclient) will connect to.
 
 ---
 
-# How much is the size
+## How much is the size
 
 Technically unlimited but your your mileage may vary.
 
 ---
 
-# What are the catches
+## What are the catches
 
 1. Discord can ban you.
 2. Discord can rate limit your bot.
@@ -25,6 +25,8 @@ Technically unlimited but your your mileage may vary.
 
 ---
 
-# How do I use it
+## How do I use it
 
 Please proceed at your own risk, and read UsageGuide.md in this repo.
+
+It also includes a client usage guide, but API guide is not added yet.
