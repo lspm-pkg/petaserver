@@ -30,6 +30,8 @@ if ! command -v uv &>/dev/null; then
     curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 
+source /root/.local/bin/env
+
 apt-get update
 apt-get install -y git curl nano
 
@@ -41,7 +43,7 @@ else
 fi
 
 cd /petaserver
-cp -n config.toml.example config.toml
+cp -n config.example.toml config.toml
 cp -n example-env .env
 echo "Please edit /petaserver/config.toml and /petaserver/.env with your settings."
 echo "Press Enter to continue after editing..."
