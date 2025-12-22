@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 echo "Starting Peta Server setup..."
 
 if [ "$EUID" -ne 0 ]; then
@@ -25,6 +24,8 @@ case "$ID" in
     ;;
 esac
 
+read -s 
+
 if ! command -v /root/.local/bin/uv &>/dev/null; then
     echo "uv not found, installing via Astral..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -46,8 +47,10 @@ cd /petaserver
 cp -n config.example.toml config.toml
 cp -n example-env .env
 echo "Please edit /petaserver/config.toml and /petaserver/.env with your settings."
-echo "Press Enter to continue after editing..."
+echo "Press Enter to continue..."
 read
+nano /petaserver/config.toml /petaserver/.env
+sleep 1
 
 cat <<EOF >/etc/systemd/system/petaserver.service
 [Unit]
