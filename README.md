@@ -5,13 +5,13 @@
 
 ## How does it work
 
-It uses discord and some HTTP stuff to make an API server which then a client like [ours](https://github.com/lspm-pkg/petaclient) will connect to.
+Petaserver uses Discord(.py) and FastAPI to make an API server which then a client like [petaclient](https://github.com/lspm-pkg/petaclient) can connect to.
 
 ---
 
-## How much is the size
+## How much can it store
 
-Technically unlimited but your your mileage may vary.
+The amount of storage is technically unlimited but your mileage may vary.
 
 ---
 
@@ -19,14 +19,14 @@ Technically unlimited but your your mileage may vary.
 
 1. Discord can ban you.
 2. Discord can rate limit your bot.
-3. Reads are very slow depending on what you're doing (there is adaptive read ahead and if the write is pending, it could be in the cache)
+3. Reads are very slow depending on what you're doing (There is adaptive read ahead for heavy tasks and extensive caching)
    - writes are very fast due to server side caching.
-4. Without a client application, it is not easy to use.
+4. Without a client application, it is not particularly easy to use.
 
 ---
 
 ## How do I use it
 
-Please proceed at your own risk, and read UsageGuide.md in this repo.
+Please proceed at your own risk, and read [UsageGuide.md](https://github.com/lspm-pkg/petaserver/blob/main/UsageGuide.md) in this repo.
 
 It also includes a client usage guide, but API guide is not added yet.
