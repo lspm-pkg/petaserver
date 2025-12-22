@@ -21,6 +21,20 @@ For client:
 
 ---
 
+## Install Scripts:
+
+These are in beta. if there are issues with the script or you want to add an OS, please report them to the issues tab or contribute by making a pull request.
+
+Peta Server:
+```
+curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaserver/refs/heads/main/install-server.sh | bash
+```
+
+Peta Client:
+```
+curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaclient/refs/heads/main/install-server.sh | bash
+```
+
 ## Peta Server Setup
 
 ### 1. Clone
