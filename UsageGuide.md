@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaserver/refs/heads/main
 
 Peta Client:
 ```
-curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaclient/refs/heads/main/install-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaclient/refs/heads/main/install-client.sh | bash
 ```
 
 ## Peta Server Setup
@@ -63,7 +63,7 @@ cd /petaserver
 
 
 # Now copy and configure.
-cp config.toml.example config.toml
+cp config.example.toml config.toml
 
 nano config.toml # nano
 vi config.toml # vi
@@ -208,7 +208,7 @@ cd /petaclient
 cd /petaclient
 
 # Now copy and configure.
-cp config.toml.example config.toml
+cp config.example.toml config.toml
 
 nano config.toml # nano
 vi config.toml # vi
