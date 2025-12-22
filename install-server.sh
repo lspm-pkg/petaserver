@@ -38,7 +38,7 @@ fi
 cd /petaserver
 cp -n config.toml.example config.toml
 cp -n example-env .env
-echo "Please edit config.toml and .env with your settings."
+echo "Please edit /petaserver/config.toml and /petaserver/.env with your settings."
 echo "Press Enter to continue after editing..."
 read
 
