@@ -29,12 +29,12 @@ Also these are only for debian/ubuntu/proxmox.
 
 Peta Server:
 ```
-curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaserver/refs/heads/main/install-server.sh | bash
+bash <(curl https://raw.githubusercontent.com/lspm-pkg/petaserver/refs/heads/main/install-server.sh>
 ```
 
 Peta Client:
 ```
-curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaclient/refs/heads/main/install-client.sh | bash
+bash <(curl https://raw.githubusercontent.com/lspm-pkg/petaclient/refs/heads/main/install-client.sh>
 ```
 
 ## Peta Server Setup
