@@ -1,6 +1,4 @@
 #!/bin/bash
-set -e
-
 echo "Starting Peta Client setup..."
 
 if [ "$EUID" -ne 0 ]; then
@@ -79,13 +77,19 @@ echo "Please edit /petaclient/config.toml with your settings."
 echo "Press Enter to continue after editing..."
 read
 
+if systemctl list-unit-files | grep -q '^petaserver\.service'; then
+    after_line="After=petaserver.service"
+else
+    after_line=""
+fi
+
 cat >/etc/systemd/system/petaclient.service <<EOF
 [Unit]
 Description=Peta Client
-After=petaserver.service
+$after_line
 
 [Service]
-ExecStart=/root/.local/bin/uv run main.py
+ExecStart=modprobe nbd && /root/.local/bin/uv run main.py
 WorkingDirectory=/petaclient
 User=root
 
