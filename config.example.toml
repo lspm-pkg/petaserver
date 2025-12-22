@@ -1,0 +1,57 @@
+[network]
+host = "0.0.0.0"
+port = 7004
+
+[cache]
+#
+# It's required.
+#
+# Discription: Chunk limit for Read Ahead FIFO Caching
+#
+# Matters:
+# Improves your Read Performance as it grabs the next and before reads into cache,
+# improving speed in some workloads.
+#
+# Disclaimers: None
+#
+# To caclulate how much RAM you can give to Peta Server, use this math:
+# 128x(your RAM size in GB)
+#
+# Each chunk is 8 MB, so for 1GB it is 128.
+#
+# Default: 128
+in_memory_chunk_limit = 128
+
+[uploads]
+#
+# It's required.
+#
+# Discription: Chunk size for each Upload.
+#
+# Matters:
+# Upload size for each chunk,
+# shouldn't be changed unless you have discord server boosts or something.
+#
+# Disclaimers:
+# Keep at default If you're using in a 0 boost discord server,
+# As you could trigger the discord upload limit.
+#
+# Default: 8388608
+chunk_size = 8388608
+
+
+[uploads.discord]
+#
+# It's required.
+#
+# Discription: Required for the data to get uploaded.
+# 
+# Matters: Required.
+#
+# Disclaimers: Text Channel.
+channel_id = 1440814868922896434
+
+[auth]
+registration_enabled = true
+# we may add some IP whitelisting soon so you could use without an account.
+# but for right now, none.

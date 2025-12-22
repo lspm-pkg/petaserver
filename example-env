@@ -1,0 +1,7 @@
+# [ Discord stuff ] #
+
+DISCORD_BOT_TOKEN=""
+SESSION_SECRET=
+
+# [ This must be in base 16 ] #
+ENCRYPTION_KEY=

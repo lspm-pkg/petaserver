@@ -1,0 +1,44 @@
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.asymmetric.ed448 import Ed448PrivateKey, Ed448PublicKey
+from base64 import urlsafe_b64encode
+from datetime import datetime, timezone
+from ..config import ENCRYPTION_KEY
+import secrets
+
+USED_SALTS = []
+
+def encrypt(chunk: bytes) -> bytes:
+    # Encrypt a message
+    nonce = secrets.token_bytes(12)  # GCM mode needs 12 fresh bytes every time
+    return nonce + AESGCM(ENCRYPTION_KEY).encrypt(nonce, chunk, b"")
+
+def decrypt(chunk: bytes) -> bytes:
+    return AESGCM(ENCRYPTION_KEY).decrypt(chunk[:12], chunk[12:], b"")
+'''
+def generate_apikey():
+    priv = Ed448PrivateKey.generate()
+    pub = priv.public_key()
+
+    return pub.public_bytes_raw(), (b"PETA-" + urlsafe_b64encode(priv.private_bytes_raw())).decode()
+
+def verify_sig(data: bytes, sig: bytes, pub_key: bytes):
+    try:
+        Ed448PublicKey.from_public_bytes(pub_key).verify(sig, data)
+    except Exception:
+        return False
+    time, salt = data.decode().split('-')
+    secs_since = datetime.now(timezone.utc).timestamp() - datetime.fromtimestamp(int(time), tz=timezone.utc).timestamp()
+    if secs_since > 15:
+        return False
+    if salt in USED_SALTS:
+        return False
+    USED_SALTS.append(salt)
+    return True
+'''
+    
+    
+
+
+if __name__ == "__main__":
+    secret = b"Hello, World!"
+    assert decrypt(encrypt(secret)) == secret
