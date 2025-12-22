@@ -1,11 +1,11 @@
 # Peta Project - Client & Server Setup
 
-Unlimited Discord-backed storage, up to 990 PB, using PetaServer and PetaClient.
+Unlimited Discord-backed storage, up to 1.7 PB, using PetaServer and PetaClient.
 
 This document assumes:
 - Linux (Debian/Ubuntu-style)
 - Root access
-- You know how to not brick your box
+- You know how to not brick your machine
 
 ---
 
@@ -16,32 +16,26 @@ For server and client:
 
 For client:
 - nbdkit
+- qemu-utils (exclude If using proxmox)
 - libfuse-dev
-
-
-Download:
-- `petaserver.zip`
-- `petaclient.zip`
-
-From:
-```
-
-https://mirror.5136.cloud/projects/petaproject
-
-```
 
 ---
 
 ## Peta Server Setup
 
-### 1. Extract
-
-Unzip the server into:
+### 1. Clone
 
 ```
+sudo su # A little root is required
 
-/petaserver
+# To put it in /
+cd /
 
+# Clone
+git clone https://github.com/lspm-pkg/petaserver.git
+
+# Now to configure.
+cd /petaserver
 ```
 
 ---
@@ -49,16 +43,24 @@ Unzip the server into:
 ### 2. Configuration Files
 
 ```
-
 cd /petaserver
+
+
+# Now copy and configure.
 cp config.toml.example config.toml
-nano config.toml
 
-```
-```
+nano config.toml # nano
+vi config.toml # vi
+vim config.toml # vim
+nvim config.toml # neovim
 
+# To clone the ENV and configure it.
 cp example-env .env
-nano .env
+
+nano .env # nano
+vi .env # vi
+vim .env # vim
+nvim .env # neovim
 
 ```
 
@@ -69,7 +71,6 @@ You **must** have both `config.toml` and `.env` configured before starting the s
 ### 3. Server config.toml (example)
 
 ```
-
 [network]
 host = "0.0.0.0"
 port = 7004
@@ -85,7 +86,6 @@ channel_id = 1440814868922896434
 
 [auth]
 registration_enabled = true
-
 ```
 
 Cache math reminder:
@@ -98,11 +98,9 @@ Cache math reminder:
 ### 4. Environment Variables (.env)
 
 ```
-
 DISCORD_BOT_TOKEN=""
 SESSION_SECRET=
 ENCRYPTION_KEY=
-
 ```
 
 Notes:
@@ -118,7 +116,10 @@ Create the service:
 
 ```
 
-nano /etc/systemd/system/petaserver.service
+nano /etc/systemd/system/petaserver.service # nano
+vi /etc/systemd/system/petaserver.service # vi
+vim /etc/systemd/system/petaserver.service # vim
+nvim /etc/systemd/system/petaserver.service # nvim
 
 ```
 ```
@@ -168,14 +169,19 @@ You may also want to disable registeration after registering, just edit the conf
 
 ## Peta Client Setup
 
-### 1. Extract
-
-Unzip the client into:
+### 1. Clone
 
 ```
+sudo su # A little root is required
 
-/petaclient
+# To put it in /
+cd /
 
+# Clone
+git clone https://github.com/lspm-pkg/petaclient.git
+
+# Now to configure.
+cd /petaclient
 ```
 
 ---
@@ -183,17 +189,20 @@ Unzip the client into:
 ### 2. Client Configuration
 
 ```
-
 cd /petaclient
-cp config.toml.example config.toml
-nano config.toml
 
+# Now copy and configure.
+cp config.toml.example config.toml
+
+nano config.toml # nano
+vi config.toml # vi
+vim config.toml # vim
+neovim config.toml # neovim
 ```
 
 Example:
 
 ```
-
 [auth]
 server = "http://127.0.0.1:7004"
 email = ""
@@ -201,7 +210,6 @@ password = ""
 
 [disk]
 disk_size_gb = 256.0
-
 ```
 
 Notes:
@@ -232,7 +240,10 @@ Create the service:
 
 ```
 
-nano /etc/systemd/system/petaclient.service
+nano /etc/systemd/system/petaclient.service # nano
+vi /etc/systemd/system/petaclient.service # vi
+vim /etc/systemd/system/petaclient.service # vim
+neovim /etc/systemd/system/petaclient.service # neovim
 
 ```
 ```
