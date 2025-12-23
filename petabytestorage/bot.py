@@ -41,6 +41,7 @@ class UploadBot:
         self.iops_timestamp = time.monotonic()
         self.iops_lock = asyncio.Lock()
         self.current_read_ahead_amount = self.accel_start
+        self.ready_event = asyncio.Event()
     
     def _get_cache_key(self, file_id: Any, chunk_idx: int) -> str:
         return f"{str(file_id)}__{chunk_idx}"
@@ -62,7 +63,7 @@ class UploadBot:
                 logger.info(f"Re-queued {self.upload_queue.qsize()} pending uploads from cache.")
         except Exception as e:
             logger.error(f"Failed to scan cache directory: {e}")
-        self._uploader_text = asyncio.create_task(self._upload_worker())
+        self._uploader_task = asyncio.create_task(self._upload_worker())
         await self.bot.start(self.token)
 
     async def close(self):
@@ -78,12 +79,13 @@ class UploadBot:
             with open(chunk_path, "rb") as f: data = decrypt(f.read())
             if len(data) < self.chunk_size: data += b'\x00' * (self.chunk_size - len(data))
             return data
+        
+        await self.ready_event.wait()
         cmeta = file.chunks.get(str(chunk_idx))
         if cmeta and cmeta.get("msg_id"):
             try:
                 msg = await self.channel.fetch_message(cmeta["msg_id"])
                 enc = await msg.attachments[0].read()
-                with open(chunk_path, "wb") as f: f.write(enc)
                 data = decrypt(enc)
                 if len(data) < self.chunk_size: data += b'\x00' * (self.chunk_size - len(data))
                 return data
@@ -202,7 +204,7 @@ class UploadBot:
         if needs_save: await file.save(update_fields=['chunks'])
 
     async def _upload_worker(self):
-        await self.bot.wait_until_ready()
+        await self.ready_event.wait()
         while True:
             try:
                 file_id_str, chunk_idx = await self.upload_queue.get()
@@ -245,3 +247,4 @@ class UploadBot:
         if not isinstance(chan, discord.TextChannel): raise Exception("Channel must be a TextChannel.")
         self.channel = chan
         logger.info(f"Discord bot ready as {self.bot.user}")
+        self.ready_event.set()
