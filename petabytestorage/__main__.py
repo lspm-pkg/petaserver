@@ -1,3 +1,4 @@
+# __main__.py
 from uuid import UUID
 import json
 import asyncio
