@@ -77,57 +77,24 @@ async def fs_create(path: str = Form(...), user: User = Depends(get_current_user
         await parent.save(update_fields=['files'])
     return {"status": "ok"}
 
-@api_router.get("/fs/get_config")
-async def get_config(user: User = Depends(get_current_user)):
-    return {"chunk_size": config.Upload.CHUNK_SIZE}
-
-@api_router.get("/fs/list")
-async def fs_list(path: str, user: User = Depends(get_current_user)):
-    folder = await get_at_path(user, path)
-    if not isinstance(folder, Folder): raise HTTPException(status_code=400, detail="Path is not a folder.")
-    if not folder.files: return []
-    entry_ids = [UUID(id_str) for name, id_str in folder.files.items()]
-    files_q = File.filter(id__in=entry_ids).all()
-    folders_q = Folder.filter(id__in=entry_ids).all()
-    found_files, found_folders = await asyncio.gather(files_q, folders_q)
-    nodes_by_id = {str(f.id): f for f in found_files}
-    nodes_by_id.update({str(f.id): f for f in found_folders})
-    result = []
-    for name, id_str in folder.files.items():
-        node = nodes_by_id.get(id_str)
-        if not node: continue
-        if isinstance(node, File): result.append({"name": name, "type": "file", "size": node.size, "mtime": node.updated_at.timestamp()})
-        elif isinstance(node, Folder): result.append({"name": name, "type": "folder", "size": 0, "mtime": node.creation_date.timestamp()})
-    return result
-
-@api_router.get("/fs/query")
-async def fs_query(path: str, user: User = Depends(get_current_user)):
-    node = await get_at_path(user, path)
-    if isinstance(node, File): return {"path": path, "size": node.size, "type": "file", "mtime": node.updated_at.timestamp()}
-    elif isinstance(node, Folder): return {"path": path, "size": 0, "type": "folder", "mtime": node.creation_date.timestamp()}
-    raise HTTPException(status_code=404, detail="Unknown node type")
-
-@api_router.post("/fs/mkdir")
-async def fs_mkdir(path: str = Form(...), user: User = Depends(get_current_user)):
-    parent_path, name = os.path.split(path)
-    parent = await get_at_path(user, parent_path)
-    if not isinstance(parent, Folder): raise HTTPException(status_code=400, detail="Parent is not a folder.")
-    if name in parent.files: raise HTTPException(status_code=409, detail="File or directory already exists.")
-    new_folder = await Folder.create(name=name, files={}, parent=parent.id)
-    parent.files[name] = str(new_folder.id)
-    await parent.save(update_fields=['files'])
-    return {"status": "ok"}
-
 @api_router.post("/register", tags=["Authentication"])
 async def register(signup: Signup):
-    if not config.Auth.REGISTRATION_ENABLED: return PlainTextResponse("Registration disabled.", 403)
+    if not config.Auth.REGISTRATION_ENABLED: return PlainTextResponse("Registration is disabled.", 403)
     if not (signup.email and signup.password and signup.terms_accepted): return PlainTextResponse("Missing required fields.", 400)
     from .utils import validate_email
     if not validate_email(signup.email): return PlainTextResponse("Email must be a valid email.", 400)
     if await User.filter(email=signup.email).exists(): return PlainTextResponse("User already exists", 400)
+    
     salt = bcrypt.gensalt()
     root_folder = await Folder.create(name="root", files={}, parent=NULL_UUID)
     await User.create(email=signup.email, password=bcrypt.hashpw(signup.password.encode("utf-8"), salt), salt=salt, root_folder=root_folder.id, api_keys=[])
+    
+    if config.Auth.ONE_ACCOUNT_MODE:
+        user_count = await User.all().count()
+        if user_count >= 1:
+            logger.info("One Account Mode: First user registered. Sealing the blast doors. Disabling all future registrations.")
+            config.Auth.REGISTRATION_ENABLED = False
+            
     return PlainTextResponse("Account created successfully!", 200)
 
 @api_router.post("/login", tags=["Authentication"])
