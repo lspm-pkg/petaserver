@@ -17,7 +17,7 @@ in_memory_chunk_limit = 128
 # Description: The maximum number of concurrent reads from the slowest sources (on-disk cache and Discord).
 # Matters: Prevents the system from overwhelming the CPU (decryption) and network (API rate limits).
 # This is a critical performance tuning knob. A higher value increases parallelism for large reads.
-# Disclaimers: Start with a value around half of your CPU cores. For example, 8-16 for a modern CPU.
+# Disclaimers: Start with a value around half of your CPU cores. For example, 16-32 for a modern CPU.
 # Default: 16
 max_concurrent_reads = 16
 
@@ -29,7 +29,6 @@ max_concurrent_reads = 16
 # Keep at default for a 0-boost Discord server to avoid hitting the upload size limit.
 # Default: 8388608 (exactly 8 MiB)
 chunk_size = 8388608
-
 
 [uploads.discord]
 # Description: The Discord channel ID where all the data chunks will be stored.
