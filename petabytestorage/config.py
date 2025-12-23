@@ -14,6 +14,8 @@ if not config.get("uploads"):
     config["uploads"] = {"discord": {}}
 if not config.get("auth"):
     config["auth"] = {}
+if not config.get("cache"):
+    config["cache"] = {}
 if not cast(dict, config.get("uploads")).get("discord"):
     config["uploads"]["discord"] = {}
 
@@ -23,6 +25,9 @@ ENCRYPTION_KEY = b16decode(cast(str, os.getenv("ENCRYPTION_KEY")), casefold=True
 class Network:
     HOST: str = config["network"].get("host", "0.0.0.0")
     PORT: int = config["network"].get("port", "8080")
+
+class Cache:
+    DIR: str = config["cache"].get("dir", "petafuse_cache")
 
 class Upload:
     CHUNK_SIZE: int = cast(int, config["uploads"].get("chunk_size", 8388608))
