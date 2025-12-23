@@ -1,21 +1,12 @@
 [network]
-#
-# It's required.
-#
 # Description: Network configuration for the PetaByte server.
-#
 # Matters: Defines where the server listens for connections from the client.
-#
 # Disclaimers: Use 0.0.0.0 to allow connections from other machines, or 127.0.0.1 for local-only access.
-#
 # Default: "0.0.0.0", 7004
 host = "0.0.0.0"
 port = 7004
 
 [cache]
-#
-# It's required.
-#
 # Description: The maximum number of chunks to hold in the fast in-memory RAM cache.
 # This includes the read-ahead, write, and primer caches combined.
 #
@@ -29,35 +20,22 @@ port = 7004
 # Default: 128
 in_memory_chunk_limit = 128
 
-#
-# It's required.
-#
 # Description: The minimum number of chunks the adaptive read-ahead will fetch when idle.
 #
 # Matters: This is the 'cooldown' state. It ensures that even with low activity, there's a
 # small, helpful amount of pre-fetching for basic responsiveness.
 #
-# Disclaimers: Should be an even number.
-#
 # Default: 6
 chunks_min = 6
 
-#
-# It's required.
-#
 # Description: The starting number of chunks for the adaptive read-ahead when the server starts.
 #
 # Matters: This is the baseline performance level for read-ahead before the adaptive logic
 # takes over based on current I/O load.
 #
-# Disclaimers: Should be an even number.
-#
 # Default: 10
 accel_start = 10
 
-#
-# It's required.
-#
 # Description: The absolute maximum number of chunks the adaptive read-ahead will ever fetch.
 # This acts as a safety limit to prevent run-away cache growth.
 #
@@ -69,9 +47,6 @@ accel_start = 10
 # Default: 48
 accel_end = 48
 
-#
-# It's required.
-#
 # Description: The Read IOPs (Input/Output Operations per Second) threshold.
 # If the number of read requests per second exceeds this value, the cache becomes more aggressive.
 #
@@ -85,11 +60,7 @@ accel_agr = 11
 
 
 [uploads]
-#
-# It's required.
-#
 # Description: The size of each data chunk that gets uploaded to Discord.
-#
 # Matters: This value is fundamental to how the disk is split into pieces.
 #
 # Disclaimers:
@@ -101,25 +72,15 @@ chunk_size = 8388608
 
 
 [uploads.discord]
-#
-# It's required.
-#
 # Description: The Discord channel ID where all the data chunks will be stored.
-#
 # Matters: This is the backing storage for your entire virtual disk. It is critical.
-#
 # Disclaimers: MUST be a Text Channel ID. The bot needs full permissions in this channel.
 channel_id = 1440814868922896434
 
 [auth]
-#
-# It's required.
-#
 # Description: Allows or disables new user registration via the API.
-#
 # Matters: Set to `false` after creating your user account for security.
-#
 # Disclaimers: If false, the `/api/register` endpoint will be disabled.
-#
+# You may enable it for a short amount of time and then disable it.
 # Default: true
 registration_enabled = true
