@@ -14,32 +14,12 @@ port = 7004
 # Default: 128
 in_memory_chunk_limit = 128
 
-# Description: The minimum number of chunks the adaptive read-ahead will fetch when idle.
-# Matters: The 'cooldown' state for basic responsiveness.
-# Default: 6
-chunks_min = 6
-
-# Description: The starting number of chunks for the adaptive read-ahead when the server starts.
-# Matters: The baseline read-ahead performance before adaptive logic takes over.
-# Default: 10
-accel_start = 10
-
-# Description: The absolute maximum number of chunks the adaptive read-ahead will ever fetch.
-# Matters: Defines the peak 'aggressive' state of the cache. Higher values boost sequential reads.
-# Disclaimers: Should not exceed `in_memory_chunk_limit`.
-# Default: 48
-accel_end = 48
-
-# Description: The Read IOPs (Operations per Second) threshold to trigger aggressive caching.
-# Matters: A lower value makes the cache accelerate faster under load.
-# Default: 11
-accel_agr = 11
-
 # Description: The maximum number of concurrent reads from the slowest sources (on-disk cache and Discord).
 # Matters: Prevents the system from overwhelming the CPU (decryption) and network (API rate limits).
-# Disclaimers: This is a critical performance tuning knob. 4 is a sane default for a modern multi-core CPU with minimal ratelimiting.
-# Default: 4
-max_concurrent_reads = 4
+# This is a critical performance tuning knob. A higher value increases parallelism for large reads.
+# Disclaimers: Start with a value around half of your CPU cores. For example, 8-16 for a modern CPU.
+# Default: 16
+max_concurrent_reads = 16
 
 [uploads]
 # Description: The size of each data chunk before compression and encryption.
