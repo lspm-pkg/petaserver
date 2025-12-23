@@ -1,3 +1,4 @@
+# Only useful for archival propuses.
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.asymmetric.ed448 import Ed448PrivateKey, Ed448PublicKey
 from base64 import urlsafe_b64encode
