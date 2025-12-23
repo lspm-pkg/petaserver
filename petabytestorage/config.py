@@ -32,20 +32,10 @@ class Upload:
 
 class Auth:
     REGISTRATION_ENABLED: bool = config["auth"].get("registration_enabled", True)
-
-class Cache:
-    DIR: str = config.get("cache", {}).get("dir", "petafuse_cache")
-    UPLOAD_CONCURRENCY: int = config.get("cache", {}).get("upload_concurrency", 3)
-    DEBOUNCE_SECONDS: float = config.get("cache", {}).get("debounce_seconds", 0.5)
-    IN_MEMORY_CHUNK_LIMIT: int = config.get("cache", {}).get("in_memory_chunk_limit", 128)
-    CHUNKS_MIN: int = config.get("cache", {}).get("chunks_min", 6)
-    ACCEL_START: int = config.get("cache", {}).get("accel_start", 10)
-    ACCEL_END: int = config.get("cache", {}).get("accel_end", 48)
-    ACCEL_AGR: int = config.get("cache", {}).get("accel_agr", 11)
-    MAX_CONCURRENT_READS: int = config.get("cache", {}).get("max_concurrent_reads", 16)
+    ONE_ACCOUNT_MODE: bool = config["auth"].get("one_account_mode", False)
 
 if not Upload.Discord.TOKEN:
-    raise RuntimeError("Missing DISCORD_BOT_TOKEN in config.toml")
+    raise RuntimeError("Missing DISCORD_BOT_TOKEN in .env")
 if not Upload.Discord.UPLOAD_CHANNEL_ID:
     raise RuntimeError("Missing DISCORD_UPLOAD_CHANNEL_ID in config.toml")
 if not SESSION_SECRET:
