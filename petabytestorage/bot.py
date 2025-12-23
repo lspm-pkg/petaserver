@@ -3,8 +3,7 @@ import io
 import secrets
 import asyncio
 import time
-import httpx
-from typing import Any, Set, List, Dict
+from typing import Any, Set
 from uuid import UUID
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -28,25 +27,16 @@ class UploadBot:
         os.makedirs(config.Cache.DIR, exist_ok=True)
         self.upload_queue = asyncio.Queue()
         self._uploader_task = None
-        
         self.ready_event = asyncio.Event()
-        
-        self.ratelimit_remaining = 5
-        self.ratelimit_reset_after = 0.0
-        self.ratelimit_timestamp = time.monotonic()
-        self.ratelimit_lock = asyncio.Lock()
-        
         self.thread_executor = ThreadPoolExecutor(max_workers=32)
-        self.http_client = httpx.AsyncClient()
-
-    def _get_cache_key(self, file_id: Any, chunk_idx: int) -> str:
-        return f"{str(file_id)}__{chunk_idx}"
+        self.api_semaphore = asyncio.Semaphore(config.Upload.MAX_REQUESTS_PER_SECOND)
 
     def _chunk_cache_path(self, file_id: str, idx: int) -> str:
         return os.path.join(config.Cache.DIR, f"{file_id}__{idx}.chunk")
 
     async def start(self):
         logger.info("Scanning cache for pending uploads...")
+        # ... (rest of start is the same)
         try:
             for entry in os.scandir(config.Cache.DIR):
                 if entry.is_file() and entry.name.endswith(".chunk"):
@@ -64,7 +54,6 @@ class UploadBot:
         
     async def close(self):
         if self._uploader_task: self._uploader_task.cancel()
-        await self.http_client.aclose()
         self.thread_executor.shutdown(wait=False, cancel_futures=True)
         if self.bot.is_ready(): await self.bot.close()
 
@@ -72,7 +61,6 @@ class UploadBot:
         await self.upload_queue.join()
 
     async def _get_chunk(self, file: File, chunk_idx: int) -> bytes:
-        # THE BEDROCK: Check the on-disk decrypted cache first. This is the new hot path.
         chunk_path = self._chunk_cache_path(str(file.id), chunk_idx)
         if os.path.exists(chunk_path):
             with open(chunk_path, "rb") as f:
@@ -81,41 +69,26 @@ class UploadBot:
                 raw_data += b'\x00' * (self.chunk_size - len(raw_data))
             return raw_data
 
-        # COLD READ: If not on disk, it's a cold read from Discord.
         await self.ready_event.wait()
         cmeta = file.chunks.get(str(chunk_idx))
         if cmeta and cmeta.get("msg_id"):
             try:
-                msg = await self.channel.fetch_message(cmeta["msg_id"])
-                attachment_url = msg.attachments[0].url
+                async with self.api_semaphore:
+                    msg = await self.channel.fetch_message(cmeta["msg_id"])
+                    enc_data = await msg.attachments[0].read()
                 
-                async with self.ratelimit_lock:
-                    if self.ratelimit_remaining <= 1 and time.monotonic() < self.ratelimit_timestamp + self.ratelimit_reset_after:
-                        await asyncio.sleep(self.ratelimit_reset_after)
-                
-                response = await self.http_client.get(attachment_url)
-                response.raise_for_status()
-                
-                async with self.ratelimit_lock:
-                    self.ratelimit_remaining = int(response.headers.get("x-ratelimit-remaining", 5))
-                    self.ratelimit_reset_after = float(response.headers.get("x-ratelimit-reset-after", 1.0))
-                    self.ratelimit_timestamp = time.monotonic()
-                
-                enc_data = response.content
                 loop = asyncio.get_running_loop()
                 raw_data = await loop.run_in_executor(self.thread_executor, crypto.decrypt, enc_data)
                 
-                # CRITICAL: Save the freshly decrypted data to the on-disk cache for next time.
                 with open(chunk_path, "wb") as f:
                     f.write(raw_data)
 
                 if len(raw_data) < self.chunk_size:
                     raw_data += b'\x00' * (self.chunk_size - len(raw_data))
                 return raw_data
-            except (discord.NotFound, httpx.HTTPStatusError):
+            except discord.NotFound:
                 logger.warning(f"Message/Attachment for chunk {chunk_idx} of file {file.id} not found.")
         
-        # If all else fails, return an empty block.
         return b'\x00' * self.chunk_size
 
     async def discord_ranged_download(self, file: File, download_range: list[int]):
@@ -126,7 +99,6 @@ class UploadBot:
         start_chunk_idx = start_byte // self.chunk_size
         end_chunk_idx = end_byte // self.chunk_size
         
-        # THE LONE WOLF: A simple, unbreakable, one-at-a-time loop.
         payload_parts = []
         for i in range(start_chunk_idx, end_chunk_idx + 1):
             chunk_data = await self._get_chunk(file, i)
@@ -167,6 +139,7 @@ class UploadBot:
             buf_ptr += len_to_write
 
     async def discord_discard(self, file: File, size: int, offset: int):
+        # ... (This function is unchanged, it works)
         start_chunk = offset // self.chunk_size
         end_chunk = (offset + size - 1) // self.chunk_size
         needs_save = False
@@ -199,14 +172,14 @@ class UploadBot:
                 msg = None
                 while attempt < 5:
                     try:
-                        chunk_io = io.BytesIO(enc_data)
-                        discord_name = secrets.token_urlsafe(16)
-                        msg = await self.channel.send(file=discord.File(fp=chunk_io, filename=discord_name))
+                        async with self.api_semaphore:
+                            chunk_io = io.BytesIO(enc_data)
+                            discord_name = secrets.token_urlsafe(16)
+                            msg = await self.channel.send(file=discord.File(fp=chunk_io, filename=discord_name))
                         break
                     except Exception as e:
                         logger.error(f"Upload worker attempt failed for {file_id_str} chunk {chunk_idx}: {e}")
-                        attempt += 1
-                        await asyncio.sleep(1 + attempt)
+                        await asyncio.sleep(1 + (2 * attempt)) # Exponential backoff
                 if msg:
                     try:
                         file = await File.get(id=UUID(file_id_str))
