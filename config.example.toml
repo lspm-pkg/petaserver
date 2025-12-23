@@ -1,4 +1,14 @@
 [network]
+#
+# It's required.
+#
+# Description: Network configuration for the PetaByte server.
+#
+# Matters: Defines where the server listens for connections from the client.
+#
+# Disclaimers: Use 0.0.0.0 to allow connections from other machines, or 127.0.0.1 for local-only access.
+#
+# Default: "0.0.0.0", 7004
 host = "0.0.0.0"
 port = 7004
 
@@ -6,37 +16,87 @@ port = 7004
 #
 # It's required.
 #
-# Discription: Chunk limit for Read Ahead FIFO Caching
+# Description: The maximum number of chunks to hold in the fast in-memory RAM cache.
+# This includes the read-ahead, write, and primer caches combined.
 #
-# Matters:
-# Improves your Read Performance as it grabs the next and before reads into cache,
-# improving speed in some workloads.
+# Matters: Directly impacts read performance and memory usage.
+# A larger limit can hold more pre-fetched data, improving speed for sequential reads.
 #
-# Disclaimers: None
-#
-# To caclulate how much RAM you can give to Peta Server, use this math:
-# 128x(your RAM size in GB)
-#
-# Each chunk is 8 MB, so for 1GB it is 128.
+# To calculate RAM usage, use this math:
+# in_memory_chunk_limit * chunk_size (in MB) = Total RAM Usage (in MB)
+# Example: 128 * 8 MB = 1024 MB (1 GB) of RAM.
 #
 # Default: 128
 in_memory_chunk_limit = 128
+
+#
+# It's required.
+#
+# Description: The minimum number of chunks the adaptive read-ahead will fetch when idle.
+#
+# Matters: This is the 'cooldown' state. It ensures that even with low activity, there's a
+# small, helpful amount of pre-fetching for basic responsiveness.
+#
+# Disclaimers: Should be an even number.
+#
+# Default: 6
+chunks_min = 6
+
+#
+# It's required.
+#
+# Description: The starting number of chunks for the adaptive read-ahead when the server starts.
+#
+# Matters: This is the baseline performance level for read-ahead before the adaptive logic
+# takes over based on current I/O load.
+#
+# Disclaimers: Should be an even number.
+#
+# Default: 10
+accel_start = 10
+
+#
+# It's required.
+#
+# Description: The absolute maximum number of chunks the adaptive read-ahead will ever fetch.
+# This acts as a safety limit to prevent run-away cache growth.
+#
+# Matters: Defines the peak 'aggressive' state of the cache. Higher values can dramatically
+# boost performance during heavy sequential reads but will use more network bandwidth and CPU.
+#
+# Disclaimers: Should be an even number. Should not exceed `in_memory_chunk_limit`.
+#
+# Default: 48
+accel_end = 48
+
+#
+# It's required.
+#
+# Description: The Read IOPs (Input/Output Operations per Second) threshold.
+# If the number of read requests per second exceeds this value, the cache becomes more aggressive.
+#
+# Matters: This is the trigger for the cache to "accelerate." A lower value makes the cache
+# more sensitive and aggressive faster. A higher value requires more sustained activity.
+#
+# Disclaimers: Finding the perfect value depends on your workload.
+#
+# Default: 11
+accel_agr = 11
+
 
 [uploads]
 #
 # It's required.
 #
-# Discription: Chunk size for each Upload.
+# Description: The size of each data chunk that gets uploaded to Discord.
 #
-# Matters:
-# Upload size for each chunk,
-# shouldn't be changed unless you have discord server boosts or something.
+# Matters: This value is fundamental to how the disk is split into pieces.
 #
 # Disclaimers:
-# Keep at default If you're using in a 0 boost discord server,
-# As you could trigger the discord upload limit.
+# DO NOT CHANGE THIS after you have started uploading data, as it will corrupt the file mapping.
+# Keep at default for a 0-boost Discord server to avoid hitting the upload size limit.
 #
-# Default: 8388608
+# Default: 8388608 (exactly 8 MiB)
 chunk_size = 8388608
 
 
@@ -44,14 +104,22 @@ chunk_size = 8388608
 #
 # It's required.
 #
-# Discription: Required for the data to get uploaded.
-# 
-# Matters: Required.
+# Description: The Discord channel ID where all the data chunks will be stored.
 #
-# Disclaimers: Text Channel.
+# Matters: This is the backing storage for your entire virtual disk. It is critical.
+#
+# Disclaimers: MUST be a Text Channel ID. The bot needs full permissions in this channel.
 channel_id = 1440814868922896434
 
 [auth]
+#
+# It's required.
+#
+# Description: Allows or disables new user registration via the API.
+#
+# Matters: Set to `false` after creating your user account for security.
+#
+# Disclaimers: If false, the `/api/register` endpoint will be disabled.
+#
+# Default: true
 registration_enabled = true
-# we may add some IP whitelisting soon so you could use without an account.
-# but for right now, none.
