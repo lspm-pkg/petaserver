@@ -42,6 +42,7 @@ class Cache:
     ACCEL_START: int = config.get("cache", {}).get("accel_start", 10)
     ACCEL_END: int = config.get("cache", {}).get("accel_end", 48)
     ACCEL_AGR: int = config.get("cache", {}).get("accel_agr", 11)
+    MAX_CONCURRENT_READS: int = config.get("cache", {}).get("max_concurrent_reads", 16)
 
 if not Upload.Discord.TOKEN:
     raise RuntimeError("Missing DISCORD_BOT_TOKEN in config.toml")
