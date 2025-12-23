@@ -23,6 +23,11 @@ dir = "petafuse_cache"
 # Default: 8388608 (exactly 8 MiB)
 chunk_size = 8388608
 
+# Description: A hard, brute-force limit on the number of Discord API requests per second.
+# Matters: This is the ultimate stability control. It prevents crashes by never exceeding Discord's limits.
+# Disclaimers: 40 is a safe, high-performance number. Do not set this too high.
+# Default: 40
+max_requests_per_second = 40
 
 [uploads.discord]
 # Description: The Discord channel ID where all the data chunks will be permanently archived.
