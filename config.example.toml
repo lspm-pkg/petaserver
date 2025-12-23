@@ -7,38 +7,37 @@ host = "0.0.0.0"
 port = 7004
 
 [cache]
-# Description: The maximum number of DECRYPTED chunks to hold in the fast in-memory RAM cache.
-# Matters: Directly impacts read performance and memory usage. A larger limit means more cache hits.
-# To calculate RAM usage: in_memory_chunk_limit * chunk_size (MB) = Total RAM (MB)
-# Example: 128 * 8 MB = 1024 MB (1 GB).
-# Default: 128
-in_memory_chunk_limit = 128
-
-# Description: The maximum number of concurrent reads from the slowest sources (on-disk cache and Discord).
-# Matters: Prevents the system from overwhelming the CPU (decryption) and network (API rate limits).
-# This is a critical performance tuning knob. A higher value increases parallelism for large reads.
-# Disclaimers: Start with a value around half of your CPU cores. For example, 16-32 for a modern CPU.
-# Default: 16
-max_concurrent_reads = 16
+# Description:
+# The directory on the server's local disk used for the FOB (Forward Operating Base)
+# This cache stores data for high-speed read/write operations.
+# 
+# Default: "petafuse_cache"
+dir = "petafuse_cache"
 
 [uploads]
-# Description: The size of each data chunk before compression and encryption.
-# Matters: This value is fundamental to how the disk is split into pieces.
+# Description: The size of each data chunk. This is the fundamental block size of your disk.
+# Matters: This value is critical to how the disk is split into pieces.
 # Disclaimers:
-# DO NOT CHANGE THIS after you have started uploading data. It will corrupt the file mapping.
+# DO NOT CHANGE THIS after you have started uploading data. It will corrupt your entire filesystem.
 # Keep at default for a 0-boost Discord server to avoid hitting the upload size limit.
 # Default: 8388608 (exactly 8 MiB)
 chunk_size = 8388608
 
+
 [uploads.discord]
-# Description: The Discord channel ID where all the data chunks will be stored.
+# Description: The Discord channel ID where all the data chunks will be permanently archived.
 # Matters: This is the backing storage for your entire virtual disk. It is critical.
 # Disclaimers: MUST be a Text Channel ID. The bot needs full permissions.
 channel_id = 1440814868922896434
 
 [auth]
 # Description: Allows or disables new user registration via the API.
-# Matters: Set to `false` after creating your user account for security.
-# Disclaimers: If false, the `/api/register` endpoint is disabled.
+# Matters: If `one_account_mode` is true, this switch will be automatically turned off after the first registration.
 # Default: true
 registration_enabled = true
+
+# Description: Enables the "VIP Airlock". After the first successful registration, all future registrations are disabled.
+# Matters: The ultimate security for a single-user, private server.
+# Disclaimers: If you enable this and need to create another account, you must restart the server with this set to false.
+# Default: true
+one_account_mode = true
