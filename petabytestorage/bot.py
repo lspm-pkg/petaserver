@@ -4,16 +4,16 @@ import secrets
 import asyncio
 import time
 import httpx
-from typing import Any, Set
+from typing import Any, Set, List, Dict
 from uuid import UUID
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from discord.ext import commands
 import discord
 from tortoise.exceptions import DoesNotExist
-from .models import File
+from .models import File, User
 from .globals import logger
-from .utils.crypto import encrypt, decrypt
+from .utils import get_at_path, crypto
 from . import config
 
 class UploadBot:
@@ -28,10 +28,6 @@ class UploadBot:
         os.makedirs(config.Cache.DIR, exist_ok=True)
         self.upload_queue = asyncio.Queue()
         self._uploader_task = None
-        self.read_cache = OrderedDict()
-        self.write_cache = OrderedDict()
-        self.cache_limit = config.Cache.IN_MEMORY_CHUNK_LIMIT
-        self.primed_files: Set[UUID] = set()
         
         self.ready_event = asyncio.Event()
         
@@ -65,7 +61,7 @@ class UploadBot:
             logger.error(f"Failed to scan cache directory: {e}")
         self._uploader_task = asyncio.create_task(self._upload_worker())
         await self.bot.start(self.token)
-
+        
     async def close(self):
         if self._uploader_task: self._uploader_task.cancel()
         await self.http_client.aclose()
@@ -75,17 +71,17 @@ class UploadBot:
     async def wait_for_uploads(self):
         await self.upload_queue.join()
 
-    async def _fetch_chunk_from_source(self, file: File, chunk_idx: int) -> bytes:
+    async def _get_chunk(self, file: File, chunk_idx: int) -> bytes:
+        # THE BEDROCK: Check the on-disk decrypted cache first. This is the new hot path.
         chunk_path = self._chunk_cache_path(str(file.id), chunk_idx)
         if os.path.exists(chunk_path):
             with open(chunk_path, "rb") as f:
-                encrypted_data = f.read()
-            loop = asyncio.get_running_loop()
-            raw_data = await loop.run_in_executor(self.thread_executor, decrypt, encrypted_data)
+                raw_data = f.read()
             if len(raw_data) < self.chunk_size:
                 raw_data += b'\x00' * (self.chunk_size - len(raw_data))
             return raw_data
 
+        # COLD READ: If not on disk, it's a cold read from Discord.
         await self.ready_event.wait()
         cmeta = file.chunks.get(str(chunk_idx))
         if cmeta and cmeta.get("msg_id"):
@@ -107,47 +103,22 @@ class UploadBot:
                 
                 enc_data = response.content
                 loop = asyncio.get_running_loop()
-                raw_data = await loop.run_in_executor(self.thread_executor, decrypt, enc_data)
+                raw_data = await loop.run_in_executor(self.thread_executor, crypto.decrypt, enc_data)
+                
+                # CRITICAL: Save the freshly decrypted data to the on-disk cache for next time.
+                with open(chunk_path, "wb") as f:
+                    f.write(raw_data)
 
                 if len(raw_data) < self.chunk_size:
                     raw_data += b'\x00' * (self.chunk_size - len(raw_data))
                 return raw_data
             except (discord.NotFound, httpx.HTTPStatusError):
                 logger.warning(f"Message/Attachment for chunk {chunk_idx} of file {file.id} not found.")
+        
+        # If all else fails, return an empty block.
         return b'\x00' * self.chunk_size
 
-    async def _prime_file_cache(self, file: File):
-        if file.id in self.primed_files: return
-        logger.info(f"Priming cache for file {file.id}...")
-        try:
-            chunk_zero_data = await self._fetch_chunk_from_source(file, 0)
-            cache_key = self._get_cache_key(file.id, 0)
-            if len(self.read_cache) >= self.cache_limit: self.read_cache.popitem(last=False)
-            self.read_cache[cache_key] = chunk_zero_data
-            self.primed_files.add(file.id)
-            logger.info(f"Cache priming successful for file {file.id}.")
-        except Exception as e:
-            logger.error(f"Failed to prime cache for file {file.id}: {e}")
-
-    async def _read_chunk_from_cache(self, file: File, chunk_idx: int) -> bytes:
-        cache_key = self._get_cache_key(file.id, chunk_idx)
-        if cache_key in self.write_cache:
-            self.write_cache.move_to_end(cache_key)
-            return self.write_cache[cache_key]
-        if cache_key in self.read_cache:
-            self.read_cache.move_to_end(cache_key)
-            return self.read_cache[cache_key]
-        
-        chunk_data = await self._fetch_chunk_from_source(file, chunk_idx)
-        
-        if len(self.read_cache) >= self.cache_limit: self.read_cache.popitem(last=False)
-        self.read_cache[cache_key] = chunk_data
-        
-        return chunk_data
-
     async def discord_ranged_download(self, file: File, download_range: list[int]):
-        if file.id not in self.primed_files: await self._prime_file_cache(file)
-        
         start_byte, end_byte = download_range
         if not file.size or start_byte >= file.size: return b""
         if end_byte >= file.size: end_byte = file.size - 1
@@ -155,28 +126,29 @@ class UploadBot:
         start_chunk_idx = start_byte // self.chunk_size
         end_chunk_idx = end_byte // self.chunk_size
         
-        chunk_indices_to_fetch = range(start_chunk_idx, end_chunk_idx + 1)
-        tasks = [self._read_chunk_from_cache(file, i) for i in chunk_indices_to_fetch]
-        all_chunk_data = await asyncio.gather(*tasks)
-
-        start_in_chunk = start_byte % self.chunk_size
-        end_in_chunk = (end_byte % self.chunk_size) + 1
+        # THE LONE WOLF: A simple, unbreakable, one-at-a-time loop.
+        payload_parts = []
+        for i in range(start_chunk_idx, end_chunk_idx + 1):
+            chunk_data = await self._get_chunk(file, i)
+            
+            start_in_chunk = 0
+            if i == start_chunk_idx:
+                start_in_chunk = start_byte % self.chunk_size
+            
+            end_in_chunk = self.chunk_size
+            if i == end_chunk_idx:
+                end_in_chunk = (end_byte % self.chunk_size) + 1
+            
+            payload_parts.append(chunk_data[start_in_chunk:end_in_chunk])
         
-        if start_chunk_idx == end_chunk_idx:
-            return all_chunk_data[0][start_in_chunk:end_in_chunk]
-        
-        first_chunk = all_chunk_data[0][start_in_chunk:]
-        middle_chunks = all_chunk_data[1:-1]
-        last_chunk = all_chunk_data[-1][:end_in_chunk]
-        
-        return first_chunk + b"".join(middle_chunks) + last_chunk
+        return b"".join(payload_parts)
 
     async def discord_patch(self, file: File, start: int, buf: bytes):
         start_chunk = start // self.chunk_size
         end_chunk = (start + len(buf) - 1) // self.chunk_size
         buf_ptr = 0
         for i in range(start_chunk, end_chunk + 1):
-            chunk_data = bytearray(await self._read_chunk_from_cache(file, i))
+            chunk_data = bytearray(await self._get_chunk(file, i))
             patch_start = 0
             if i == start_chunk: patch_start = start % self.chunk_size
             patch_end = self.chunk_size
@@ -188,14 +160,8 @@ class UploadBot:
             decrypted_chunk_bytes = bytes(chunk_data)
             chunk_path = self._chunk_cache_path(str(file.id), i)
             
-            loop = asyncio.get_running_loop()
-            encrypted_data = await loop.run_in_executor(self.thread_executor, encrypt, decrypted_chunk_bytes)
-
-            with open(chunk_path, "wb") as f: f.write(encrypted_data)
-
-            cache_key = self._get_cache_key(file.id, i)
-            if len(self.write_cache) >= self.cache_limit: self.write_cache.popitem(last=False)
-            self.write_cache[cache_key] = decrypted_chunk_bytes
+            with open(chunk_path, "wb") as f:
+                f.write(decrypted_chunk_bytes)
             
             await self.upload_queue.put((str(file.id), i))
             buf_ptr += len_to_write
@@ -209,9 +175,6 @@ class UploadBot:
             if chunk_key in file.chunks:
                 del file.chunks[chunk_key]
                 needs_save = True
-            cache_key = self._get_cache_key(file.id, i)
-            self.write_cache.pop(cache_key, None)
-            self.read_cache.pop(cache_key, None)
             chunk_path = self._chunk_cache_path(str(file.id), i)
             if os.path.exists(chunk_path): os.remove(chunk_path)
         if needs_save: await file.save(update_fields=['chunks'])
@@ -225,7 +188,13 @@ class UploadBot:
                 if not os.path.exists(chunk_path):
                     self.upload_queue.task_done()
                     continue
-                with open(chunk_path, "rb") as f: enc_data = f.read()
+                
+                with open(chunk_path, "rb") as f:
+                    decrypted_data = f.read()
+
+                loop = asyncio.get_running_loop()
+                enc_data = await loop.run_in_executor(self.thread_executor, crypto.encrypt, decrypted_data)
+                
                 attempt = 0
                 msg = None
                 while attempt < 5:
