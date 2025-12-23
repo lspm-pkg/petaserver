@@ -3,15 +3,17 @@ import io
 import secrets
 import asyncio
 import time
+import httpx
 from typing import Any, Set
 from uuid import UUID
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from discord.ext import commands
 import discord
 from tortoise.exceptions import DoesNotExist
 from .models import File
 from .globals import logger
-from .utils.crypto import compress_and_encrypt, decrypt_and_decompress
+from .utils.crypto import encrypt, decrypt
 from . import config
 
 class UploadBot:
@@ -26,24 +28,21 @@ class UploadBot:
         os.makedirs(config.Cache.DIR, exist_ok=True)
         self.upload_queue = asyncio.Queue()
         self._uploader_task = None
-        self.read_ahead_cache = OrderedDict()
+        self.read_cache = OrderedDict()
         self.write_cache = OrderedDict()
         self.cache_limit = config.Cache.IN_MEMORY_CHUNK_LIMIT
         self.primed_files: Set[UUID] = set()
         
-        self.chunks_min = config.Cache.CHUNKS_MIN
-        self.accel_start = config.Cache.ACCEL_START
-        self.accel_end = config.Cache.ACCEL_END
-        self.accel_agr_threshold = config.Cache.ACCEL_AGR
-        
-        self.read_op_counter = 0
-        self.last_iops = 0
-        self.iops_timestamp = time.monotonic()
-        self.iops_lock = asyncio.Lock()
-        self.current_read_ahead_amount = self.accel_start
         self.ready_event = asyncio.Event()
-        self.read_semaphore = asyncio.Semaphore(config.Cache.MAX_CONCURRENT_READS)
-    
+        
+        self.ratelimit_remaining = 5
+        self.ratelimit_reset_after = 0.0
+        self.ratelimit_timestamp = time.monotonic()
+        self.ratelimit_lock = asyncio.Lock()
+        
+        self.thread_executor = ThreadPoolExecutor(max_workers=32)
+        self.http_client = httpx.AsyncClient()
+
     def _get_cache_key(self, file_id: Any, chunk_idx: int) -> str:
         return f"{str(file_id)}__{chunk_idx}"
 
@@ -69,36 +68,53 @@ class UploadBot:
 
     async def close(self):
         if self._uploader_task: self._uploader_task.cancel()
+        await self.http_client.aclose()
+        self.thread_executor.shutdown(wait=False, cancel_futures=True)
         if self.bot.is_ready(): await self.bot.close()
 
     async def wait_for_uploads(self):
         await self.upload_queue.join()
 
     async def _fetch_chunk_from_source(self, file: File, chunk_idx: int) -> bytes:
-        async with self.read_semaphore:
-            chunk_path = self._chunk_cache_path(str(file.id), chunk_idx)
-            raw_data = b''
-            
-            if os.path.exists(chunk_path):
-                with open(chunk_path, "rb") as f:
-                    raw_data = decrypt_and_decompress(f.read())
-            else:
-                await self.ready_event.wait()
-                cmeta = file.chunks.get(str(chunk_idx))
-                if cmeta and cmeta.get("msg_id"):
-                    try:
-                        msg = await self.channel.fetch_message(cmeta["msg_id"])
-                        enc_data = await msg.attachments[0].read()
-                        raw_data = decrypt_and_decompress(enc_data)
-                    except discord.NotFound:
-                        logger.warning(f"Message for chunk {chunk_idx} of file {file.id} not found. Returning sparse data.")
-            
-            if raw_data and len(raw_data) < self.chunk_size:
+        chunk_path = self._chunk_cache_path(str(file.id), chunk_idx)
+        if os.path.exists(chunk_path):
+            with open(chunk_path, "rb") as f:
+                encrypted_data = f.read()
+            loop = asyncio.get_running_loop()
+            raw_data = await loop.run_in_executor(self.thread_executor, decrypt, encrypted_data)
+            if len(raw_data) < self.chunk_size:
                 raw_data += b'\x00' * (self.chunk_size - len(raw_data))
-            elif not raw_data:
-                raw_data = b'\x00' * self.chunk_size
-            
             return raw_data
+
+        await self.ready_event.wait()
+        cmeta = file.chunks.get(str(chunk_idx))
+        if cmeta and cmeta.get("msg_id"):
+            try:
+                msg = await self.channel.fetch_message(cmeta["msg_id"])
+                attachment_url = msg.attachments[0].url
+                
+                async with self.ratelimit_lock:
+                    if self.ratelimit_remaining <= 1 and time.monotonic() < self.ratelimit_timestamp + self.ratelimit_reset_after:
+                        await asyncio.sleep(self.ratelimit_reset_after)
+                
+                response = await self.http_client.get(attachment_url)
+                response.raise_for_status()
+                
+                async with self.ratelimit_lock:
+                    self.ratelimit_remaining = int(response.headers.get("x-ratelimit-remaining", 5))
+                    self.ratelimit_reset_after = float(response.headers.get("x-ratelimit-reset-after", 1.0))
+                    self.ratelimit_timestamp = time.monotonic()
+                
+                enc_data = response.content
+                loop = asyncio.get_running_loop()
+                raw_data = await loop.run_in_executor(self.thread_executor, decrypt, enc_data)
+
+                if len(raw_data) < self.chunk_size:
+                    raw_data += b'\x00' * (self.chunk_size - len(raw_data))
+                return raw_data
+            except (discord.NotFound, httpx.HTTPStatusError):
+                logger.warning(f"Message/Attachment for chunk {chunk_idx} of file {file.id} not found.")
+        return b'\x00' * self.chunk_size
 
     async def _prime_file_cache(self, file: File):
         if file.id in self.primed_files: return
@@ -106,61 +122,32 @@ class UploadBot:
         try:
             chunk_zero_data = await self._fetch_chunk_from_source(file, 0)
             cache_key = self._get_cache_key(file.id, 0)
-            if len(self.read_ahead_cache) >= self.cache_limit: self.read_ahead_cache.popitem(last=False)
-            self.read_ahead_cache[cache_key] = chunk_zero_data
+            if len(self.read_cache) >= self.cache_limit: self.read_cache.popitem(last=False)
+            self.read_cache[cache_key] = chunk_zero_data
             self.primed_files.add(file.id)
             logger.info(f"Cache priming successful for file {file.id}.")
         except Exception as e:
             logger.error(f"Failed to prime cache for file {file.id}: {e}")
-
-    async def _populate_read_ahead_cache(self, file: File, center_chunk_idx: int):
-        read_ahead_half = self.current_read_ahead_amount // 2
-        total_chunks = (file.size + self.chunk_size - 1) // self.chunk_size
-        start_chunk = max(0, center_chunk_idx - read_ahead_half)
-        end_chunk = min(total_chunks, center_chunk_idx + read_ahead_half + 1)
-        chunks_to_fetch = list(range(start_chunk, center_chunk_idx)) + list(range(center_chunk_idx + 1, end_chunk))
-        for idx in chunks_to_fetch:
-            cache_key = self._get_cache_key(file.id, idx)
-            if cache_key in self.read_ahead_cache or cache_key in self.write_cache: continue
-            try:
-                chunk_data = await self._fetch_chunk_from_source(file, idx)
-                if len(self.read_ahead_cache) >= self.cache_limit: self.read_ahead_cache.popitem(last=False)
-                self.read_ahead_cache[cache_key] = chunk_data
-            except Exception as e:
-                logger.warning(f"Read-ahead failed for chunk {idx} of file {file.id}: {e}")
 
     async def _read_chunk_from_cache(self, file: File, chunk_idx: int) -> bytes:
         cache_key = self._get_cache_key(file.id, chunk_idx)
         if cache_key in self.write_cache:
             self.write_cache.move_to_end(cache_key)
             return self.write_cache[cache_key]
-        if cache_key in self.read_ahead_cache:
-            self.read_ahead_cache.move_to_end(cache_key)
-            return self.read_ahead_cache[cache_key]
+        if cache_key in self.read_cache:
+            self.read_cache.move_to_end(cache_key)
+            return self.read_cache[cache_key]
         
         chunk_data = await self._fetch_chunk_from_source(file, chunk_idx)
         
-        if len(self.read_ahead_cache) >= self.cache_limit: self.read_ahead_cache.popitem(last=False)
-        self.read_ahead_cache[cache_key] = chunk_data
+        if len(self.read_cache) >= self.cache_limit: self.read_cache.popitem(last=False)
+        self.read_cache[cache_key] = chunk_data
         
-        asyncio.create_task(self._populate_read_ahead_cache(file, chunk_idx))
         return chunk_data
 
     async def discord_ranged_download(self, file: File, download_range: list[int]):
-        async with self.iops_lock:
-            current_time = time.monotonic()
-            if current_time - self.iops_timestamp >= 1.0:
-                self.last_iops = self.read_op_counter
-                self.iops_timestamp = current_time
-                self.read_op_counter = 1
-                if self.last_iops > self.accel_agr_threshold:
-                    self.current_read_ahead_amount = min(self.accel_end, self.current_read_ahead_amount + 1)
-                else:
-                    self.current_read_ahead_amount = max(self.chunks_min, self.current_read_ahead_amount - 1)
-            else:
-                self.read_op_counter += 1
-        
         if file.id not in self.primed_files: await self._prime_file_cache(file)
+        
         start_byte, end_byte = download_range
         if not file.size or start_byte >= file.size: return b""
         if end_byte >= file.size: end_byte = file.size - 1
@@ -200,7 +187,11 @@ class UploadBot:
             
             decrypted_chunk_bytes = bytes(chunk_data)
             chunk_path = self._chunk_cache_path(str(file.id), i)
-            with open(chunk_path, "wb") as f: f.write(compress_and_encrypt(decrypted_chunk_bytes))
+            
+            loop = asyncio.get_running_loop()
+            encrypted_data = await loop.run_in_executor(self.thread_executor, encrypt, decrypted_chunk_bytes)
+
+            with open(chunk_path, "wb") as f: f.write(encrypted_data)
 
             cache_key = self._get_cache_key(file.id, i)
             if len(self.write_cache) >= self.cache_limit: self.write_cache.popitem(last=False)
@@ -220,7 +211,7 @@ class UploadBot:
                 needs_save = True
             cache_key = self._get_cache_key(file.id, i)
             self.write_cache.pop(cache_key, None)
-            self.read_ahead_cache.pop(cache_key, None)
+            self.read_cache.pop(cache_key, None)
             chunk_path = self._chunk_cache_path(str(file.id), i)
             if os.path.exists(chunk_path): os.remove(chunk_path)
         if needs_save: await file.save(update_fields=['chunks'])
