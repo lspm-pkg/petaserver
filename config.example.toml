@@ -7,12 +7,23 @@ host = "0.0.0.0"
 port = 7004
 
 [cache]
-# Description:
-# The directory on the server's local disk used for the FOB (Forward Operating Base)
-# This cache stores data for high-speed read/write operations.
-# 
+# Description: The directory where raw, decrypted data chunks are temporarily stored before being uploaded.
+# Matters: This is the high-speed I/O cache. Ensure this path is on a fast drive (like an SSD/NVMe) for maximum performance.
+# Disclaimers: The server process needs full read/write permissions to this directory.
 # Default: "petafuse_cache"
 dir = "petafuse_cache"
+
+# Description: The maximum number of chunks to hold in the super-fast in-memory RAM cache.
+# Matters: A larger cache means more frequent reads can be served directly from RAM, boosting performance for recently or frequently accessed data.
+# Disclaimers: Each chunk consumes RAM equal to your `chunk_size`. (e.g., 128 * 8MiB = 1GiB). Do not set this higher than your available memory.
+# Default: 128
+in_memory_chunk_limit = 128
+
+# Description: The compression level for Zstandard when preparing chunks for upload.
+# Matters: Balances upload speed (CPU usage) against storage efficiency in Discord. Higher levels are smaller but require more CPU.
+# Disclaimers: Level 3 is a fantastic balance of speed and compression ratio.
+# Default: 3
+compression_level = 3
 
 [uploads]
 # Description: The size of each data chunk. This is the fundamental block size of your disk.
@@ -22,12 +33,6 @@ dir = "petafuse_cache"
 # Keep at default for a 0-boost Discord server to avoid hitting the upload size limit.
 # Default: 8388608 (exactly 8 MiB)
 chunk_size = 8388608
-
-# Description: A hard, brute-force limit on the number of Discord API requests per second.
-# Matters: This is the ultimate stability control. It prevents crashes by never exceeding Discord's limits.
-# Disclaimers: 40 is a safe, high-performance number. Do not set this too high.
-# Default: 40
-max_requests_per_second = 40
 
 [uploads.discord]
 # Description: The Discord channel ID where all the data chunks will be permanently archived.
