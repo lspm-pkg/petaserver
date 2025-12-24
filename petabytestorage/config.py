@@ -25,6 +25,7 @@ class Upload:
         TOKEN = cast(str, os.getenv("DISCORD_BOT_TOKEN"))
 class Auth:
     REGISTRATION_ENABLED: bool = config["auth"].get("registration_enabled", True)
+    ONE_ACCOUNT_MODE: bool = config["auth"].get("one_account_mode", False)
 class Cache:
     DIR: str = config.get("cache", {}).get("dir", "petafuse_cache")
     UPLOAD_CONCURRENCY: int = config.get("cache", {}).get("upload_concurrency", 3)
