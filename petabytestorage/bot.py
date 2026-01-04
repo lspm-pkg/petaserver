@@ -190,12 +190,11 @@ class UploadBot:
     async def _upload_worker(self):
         await self.bot.wait_until_ready()
         while True:
+            file_id_str, chunk_idx = await self.upload_queue.get()
             try:
-                file_id_str, chunk_idx = await self.upload_queue.get()
                 on_disk_cache_path = self._chunk_cache_path(file_id_str, chunk_idx)
 
                 if not os.path.exists(on_disk_cache_path):
-                    self.upload_queue.task_done()
                     continue
 
                 with open(on_disk_cache_path, "rb") as f:
@@ -227,14 +226,25 @@ class UploadBot:
                         logger.warning(f"File {file_id_str} was deleted before chunk {chunk_idx} could be uploaded.")
                         if os.path.exists(on_disk_cache_path):
                             os.remove(on_disk_cache_path)
-                
-                self.upload_queue.task_done()
+                else:
+                    try:
+                        file = await File.get(id=UUID(file_id_str))
+                        file.chunks[str(chunk_idx)] = {"msg_id": None, "size": len(plaintext_data), "cached": True}
+                        await file.save(update_fields=['chunks'])
+                        logger.info(f"Chunk {chunk_idx} of file {file_id_str} stored in cache after failed uploads.")
+                    except DoesNotExist:
+                        logger.warning(f"File {file_id_str} was deleted before chunk {chunk_idx} could be cached.")
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Critical error in upload worker: {e}", exc_info=True)
                 if 'chunk_idx' in locals():
                     await self.upload_queue.put((file_id_str, chunk_idx))
+            finally:
+                try:
+                    self.upload_queue.task_done()
+                except Exception:
+                    pass
 
     async def on_ready(self):
         chan = self.bot.get_channel(self.upload_channel)
