@@ -19,8 +19,8 @@ The amount of storage is technically unlimited but your mileage may vary.
 
 1. Discord can ban you.
 2. Discord can rate limit your bot.
-3. Reads are very slow depending on what you're doing (There is adaptive read ahead for heavy tasks and extensive caching)
-   - writes are very fast due to server side caching.
+3. Reads are very slow depending on what you're doing (There is compression for it)
+   - writes are very fast due to server side caching. HOWEVER if you have low ping to discord (lower than 200ms) you may see some unstable write speeds on some clients including the [petaclient](https://github.com/lspm-pkg/petaclient).
 4. Without a client application, it is not particularly easy to use.
 
 ---
