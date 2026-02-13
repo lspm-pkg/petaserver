@@ -13,6 +13,8 @@
 > \- Better stablity, still in heavy testing.
 >
 > \- Better limiting for cache, etc.
+> 
+> \- Support for arch linux & alpine linux
 ---
 
 ## How does it work
