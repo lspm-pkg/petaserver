@@ -1,254 +1,201 @@
-import os
-import io
-import secrets
-import asyncio
-from typing import Any, Set
+import os,io,secrets,asyncio,zstandard,discord,time,psutil
+from typing import Any,Set
 from uuid import UUID
 from collections import OrderedDict
-import zstandard
 from discord.ext import commands
-import discord
-from tortoise.exceptions import DoesNotExist
 from .models import File
 from .globals import logger
-from .utils.crypto import encrypt, decrypt
+from .utils.crypto import encrypt,decrypt
 from . import config
 
 class UploadBot:
-    def __init__(self, upload_channel: int, token: str, chunk_size: int) -> None:
-        self.upload_channel = upload_channel
-        self.token = token
-        self.chunk_size = chunk_size
-        intents = discord.Intents.default()
-        intents.message_content = True
-        self.bot = commands.Bot(command_prefix="!", intents=intents)
+    def __init__(self,upload_channel:int,token:str,chunk_size:int)->None:
+        self.upload_channel=upload_channel
+        self.token=token
+        self.chunk_size=chunk_size
+        intents=discord.Intents.default()
+        intents.message_content=True
+        self.bot=commands.Bot(command_prefix="!",intents=intents)
         self.bot.event(self.on_ready)
-        os.makedirs(config.Cache.DIR, exist_ok=True)
-        self.upload_queue = asyncio.Queue()
-        self._uploader_task = None
-        self.read_cache = OrderedDict()
-        self.cache_limit = config.Cache.IN_MEMORY_CHUNK_LIMIT
-        self.zstd_cctx = zstandard.ZstdCompressor(level=config.Cache.COMPRESSION_LEVEL)
-        self.zstd_dctx = zstandard.ZstdDecompressor()
-        self.primed_files: Set[UUID] = set()
+        os.makedirs(config.Cache.DIR,exist_ok=True)
+        self.upload_queue=asyncio.Queue()
+        self.db_queue=asyncio.Queue()
+        self.read_cache=OrderedDict()
+        self.zstd_cctx=zstandard.ZstdCompressor(level=config.Cache.COMPRESSION_LEVEL)
+        self.zstd_dctx=zstandard.ZstdDecompressor()
+        self._current_usage = self._calculate_initial_usage()
+        self.upload_semaphore = asyncio.Semaphore(10)
 
-    def _get_cache_key(self, file_id: Any, chunk_idx: int) -> str:
-        return f"{str(file_id)}__{chunk_idx}"
-
-    def _chunk_cache_path(self, file_id: str, idx: int) -> str:
-        return os.path.join(config.Cache.DIR, f"{file_id}__{idx}.chunk")
-
-    async def start(self):
-        logger.info("Scanning cache for pending uploads...")
+    def _calculate_initial_usage(self)->int:
+        total=0
         try:
-            for entry in os.scandir(config.Cache.DIR):
-                if entry.is_file() and entry.name.endswith(".chunk"):
-                    try:
-                        file_id_str, chunk_idx_str = entry.name.rsplit('.', 1)[0].split('__')
-                        self.upload_queue.put_nowait((file_id_str, int(chunk_idx_str)))
-                    except (ValueError, IndexError):
-                        logger.warning(f"Could not parse chunk filename, skipping: {entry.name}")
-            if not self.upload_queue.empty():
-                logger.info(f"Re-queued {self.upload_queue.qsize()} pending uploads from cache.")
-        except Exception as e:
-            logger.error(f"Failed to scan cache directory: {e}")
-        self._uploader_task = asyncio.create_task(self._upload_worker())
-        await self.bot.start(self.token)
+            with os.scandir(config.Cache.DIR) as it:
+                for entry in it:
+                    if entry.is_file(): total+=entry.stat().st_size
+        except: pass
+        return total
 
-    async def close(self):
-        if self._uploader_task:
-            self._uploader_task.cancel()
-        if self.bot.is_ready():
-            await self.bot.close()
+    def _get_ram_usage_percent(self)->float:
+        return psutil.virtual_memory().percent
 
-    async def wait_for_uploads(self):
-        await self.upload_queue.join()
+    def _evict_disk_cache(self, required_bytes: int):
+        files = []
+        try:
+            with os.scandir(config.Cache.DIR) as it:
+                for entry in it:
+                    if entry.is_file() and entry.name.endswith(".chunk"):
+                        files.append((entry.path, entry.stat().st_mtime))
+            files.sort(key=lambda x: x[1])
+            for path, _ in files:
+                if self._current_usage + required_bytes < config.Cache.SIZE_BYTES:
+                    break
+                try:
+                    sz = os.path.getsize(path)
+                    os.remove(path)
+                    self._current_usage -= sz
+                except: pass
+        except: pass
 
-    async def _fetch_chunk_from_source(self, file: File, chunk_idx: int) -> bytes:
-        cache_key = self._get_cache_key(file.id, chunk_idx)
-        if cache_key in self.read_cache:
-            self.read_cache.move_to_end(cache_key)
-            return self.read_cache[cache_key]
-
-        on_disk_cache_path = self._chunk_cache_path(str(file.id), chunk_idx)
-        if os.path.exists(on_disk_cache_path):
-            with open(on_disk_cache_path, "rb") as f:
-                data = f.read()
-            if len(data) < self.chunk_size:
-                data += b'\x00' * (self.chunk_size - len(data))
-            return data
-
-        cmeta = file.chunks.get(str(chunk_idx))
-        if cmeta and cmeta.get("msg_id"):
+    async def _db_background_worker(self):
+        while True:
+            file_id,updates=await self.db_queue.get()
             try:
-                msg = await self.channel.fetch_message(cmeta["msg_id"])
-                encrypted_compressed_data = await msg.attachments[0].read()
-                compressed_data = decrypt(encrypted_compressed_data)
-                data = self.zstd_dctx.decompress(compressed_data)
+                file=await File.get(id=file_id)
+                file.chunks.update(updates)
+                await file.save(update_fields=['chunks'])
+            except Exception as e: logger.error(f"DB Error: {e}")
+            finally: self.db_queue.task_done()
 
-                if len(data) < self.chunk_size:
-                    data += b'\x00' * (self.chunk_size - len(data))
-                
-                with open(on_disk_cache_path, "wb") as f: f.write(data)
-                return data
-            except discord.NotFound:
-                logger.warning(f"Message for chunk {chunk_idx} of file {file.id} not found. Returning sparse data.")
-            except zstandard.ZstdError:
-                 logger.warning(f"Zstd decompression failed for chunk {chunk_idx} of file {file.id}. Returning sparse data.")
-        
-        return b'\x00' * self.chunk_size
+    async def _upload_to_discord(self,file_id_str:str,chunk_idx:int,data:bytes):
+        async with self.upload_semaphore:
+            if self.bot.latency < 0.2: await asyncio.sleep(0.3)
+            c_data=encrypt(self.zstd_cctx.compress(data))
+            attempt=0
+            while attempt<5:
+                try:
+                    msg=await self.channel.send(file=discord.File(fp=io.BytesIO(c_data),filename=secrets.token_urlsafe(16)))
+                    await self.db_queue.put((UUID(file_id_str),{str(chunk_idx):{"msg_id":msg.id,"size":len(data)}}))
+                    return True
+                except:
+                    attempt+=1
+                    await asyncio.sleep(1+attempt)
+            return False
 
-    async def _prime_file_cache(self, file: File):
-        if file.id in self.primed_files:
-            return
-        
-        logger.info(f"Priming cache for file {file.id}...")
-        try:
-            chunk_zero_data = await self._fetch_chunk_from_source(file, 0)
-            cache_key = self._get_cache_key(file.id, 0)
-            if len(self.read_cache) >= self.cache_limit:
+    async def discord_patch(self,file:File,start:int,buf:bytes):
+        disk_ratio = self._current_usage / config.Cache.SIZE_BYTES
+        ram_percent = self._get_ram_usage_percent()
+
+        s_chunk,e_chunk=start//self.chunk_size,(start+len(buf)-1)//self.chunk_size
+        ptr=0
+        for i in range(s_chunk,e_chunk+1):
+            chunk_data=bytearray(await self._fetch_chunk_from_source(file,i))
+            p_s=start%self.chunk_size if i==s_chunk else 0
+            p_e=((start+len(buf)-1)%self.chunk_size)+1 if i==e_chunk else self.chunk_size
+            chunk_data[p_s:p_s+(p_e-p_s)]=buf[ptr:ptr+(p_e-p_s)]
+            final=bytes(chunk_data)
+
+            k=self._get_cache_key(file.id,i)
+            self.read_cache[k]=final # Store in RAM buffer
+
+            if disk_ratio >= 0.97 and ram_percent >= 70:
+                await self._upload_to_discord(str(file.id), i, final)
+            # If Disk has space -> Write to SSD
+            elif disk_ratio < 0.98:
+                p=self._chunk_cache_path(str(file.id),i)
+                if not os.path.exists(p):
+                    if (self._current_usage + len(final) > config.Cache.SIZE_BYTES):
+                        self._evict_disk_cache(len(final))
+                    self._current_usage += len(final)
+                with open(p,"wb")as f: f.write(final)
+                await self.upload_queue.put((str(file.id),i))
+
+            if len(self.read_cache) >= config.Cache.IN_MEMORY_CHUNK_LIMIT:
                 self.read_cache.popitem(last=False)
-            self.read_cache[cache_key] = chunk_zero_data
-            self.primed_files.add(file.id)
-            logger.info(f"Cache priming successful for file {file.id}.")
-        except Exception as e:
-            logger.error(f"Failed to prime cache for file {file.id}: {e}")
-
-    async def discord_ranged_download(self, file: File, download_range: list[int]):
-        if file.id not in self.primed_files:
-            await self._prime_file_cache(file)
-            
-        start_byte, end_byte = download_range
-        if not file.size or start_byte >= file.size: return b""
-        if end_byte >= file.size: end_byte = file.size - 1
-        
-        start_chunk = start_byte // self.chunk_size
-        end_chunk = end_byte // self.chunk_size
-        buf = io.BytesIO()
-
-        for i in range(start_chunk, end_chunk + 1):
-            chunk_data = await self._fetch_chunk_from_source(file, i)
-            start_in_chunk = 0
-            if i == start_chunk:
-                start_in_chunk = start_byte % self.chunk_size
-            
-            end_in_chunk = self.chunk_size
-            if i == end_chunk:
-                end_in_chunk = (end_byte % self.chunk_size) + 1
-            
-            buf.write(chunk_data[start_in_chunk:end_in_chunk])
-        return buf.getvalue()
-
-    async def discord_patch(self, file: File, start: int, buf: bytes):
-        start_chunk = start // self.chunk_size
-        end_chunk = (start + len(buf) - 1) // self.chunk_size
-        buf_ptr = 0
-
-        for i in range(start_chunk, end_chunk + 1):
-            chunk_data = bytearray(await self._fetch_chunk_from_source(file, i))
-            
-            patch_start = 0
-            if i == start_chunk: patch_start = start % self.chunk_size
-            
-            patch_end = self.chunk_size
-            if i == end_chunk: patch_end = ((start + len(buf) - 1) % self.chunk_size) + 1
-            
-            len_to_write = patch_end - patch_start
-            data_slice = buf[buf_ptr : buf_ptr + len_to_write]
-            
-            chunk_data[patch_start : patch_start + len(data_slice)] = data_slice
-            
-            on_disk_cache_path = self._chunk_cache_path(str(file.id), i)
-            with open(on_disk_cache_path, "wb") as f: f.write(chunk_data)
-
-            cache_key = self._get_cache_key(file.id, i)
-            if len(self.read_cache) >= self.cache_limit:
-                self.read_cache.popitem(last=False)
-            self.read_cache[cache_key] = bytes(chunk_data)
-            
-            await self.upload_queue.put((str(file.id), i))
-            buf_ptr += len_to_write
-
-    async def discord_discard(self, file: File, size: int, offset: int):
-        start_chunk = offset // self.chunk_size
-        end_chunk = (offset + size - 1) // self.chunk_size
-        needs_save = False
-        for i in range(start_chunk, end_chunk + 1):
-            chunk_key = str(i)
-            if chunk_key in file.chunks:
-                del file.chunks[chunk_key]
-                needs_save = True
-            
-            cache_key = self._get_cache_key(file.id, i)
-            self.read_cache.pop(cache_key, None)
-            
-            on_disk_cache_path = self._chunk_cache_path(str(file.id), i)
-            if os.path.exists(on_disk_cache_path): os.remove(on_disk_cache_path)
-        if needs_save:
-            await file.save(update_fields=['chunks'])
+            ptr+=(p_e-p_s)
 
     async def _upload_worker(self):
         await self.bot.wait_until_ready()
         while True:
-            file_id_str, chunk_idx = await self.upload_queue.get()
+            fid,idx=await self.upload_queue.get()
             try:
-                on_disk_cache_path = self._chunk_cache_path(file_id_str, chunk_idx)
+                p=self._chunk_cache_path(fid,idx)
+                if os.path.exists(p):
+                    sz = os.path.getsize(p)
+                    with open(p,"rb")as f: d=f.read()
+                    if await self._upload_to_discord(fid,idx,d):
+                        try:
+                            os.remove(p)
+                            self._current_usage -= sz
+                        except: pass
+            except: pass
+            finally: self.upload_queue.task_done()
 
-                if not os.path.exists(on_disk_cache_path):
-                    continue
+    async def _fetch_chunk_from_source(self,file:File,chunk_idx:int)->bytes:
+        key=self._get_cache_key(file.id,chunk_idx)
+        if key in self.read_cache:
+            self.read_cache.move_to_end(key)
+            return self.read_cache[key]
+        path=self._chunk_cache_path(str(file.id),chunk_idx)
+        if os.path.exists(path):
+            with open(path,"rb")as f: return f.read()
+        cmeta=file.chunks.get(str(chunk_idx))
+        if cmeta and cmeta.get("msg_id"):
+            try:
+                msg=await self.channel.fetch_message(cmeta["msg_id"])
+                data=self.zstd_dctx.decompress(decrypt(await msg.attachments[0].read()))
+                if self._current_usage + len(data) > config.Cache.SIZE_BYTES:
+                    self._evict_disk_cache(len(data))
+                with open(path,"wb")as f: f.write(data)
+                self._current_usage += len(data)
+                return data
+            except: pass
+        return b'\x00'*self.chunk_size
 
-                with open(on_disk_cache_path, "rb") as f:
-                    plaintext_data = f.read()
-                
-                compressed_data = self.zstd_cctx.compress(plaintext_data)
-                encrypted_compressed_data = encrypt(compressed_data)
-                
-                attempt = 0
-                msg = None
-                while attempt < 5:
-                    try:
-                        chunk_io = io.BytesIO(encrypted_compressed_data)
-                        discord_name = secrets.token_urlsafe(16)
-                        msg = await self.channel.send(file=discord.File(fp=chunk_io, filename=discord_name))
-                        break
-                    except Exception as e:
-                        logger.error(f"Upload worker attempt failed for {file_id_str} chunk {chunk_idx}: {e}")
-                        attempt += 1
-                        await asyncio.sleep(1 + attempt)
-                
-                if msg:
-                    try:
-                        file = await File.get(id=UUID(file_id_str))
-                        file.chunks[str(chunk_idx)] = {"msg_id": msg.id, "size": len(plaintext_data)}
-                        await file.save(update_fields=['chunks'])
-                        os.remove(on_disk_cache_path)
-                    except DoesNotExist:
-                        logger.warning(f"File {file_id_str} was deleted before chunk {chunk_idx} could be uploaded.")
-                        if os.path.exists(on_disk_cache_path):
-                            os.remove(on_disk_cache_path)
-                else:
-                    try:
-                        file = await File.get(id=UUID(file_id_str))
-                        file.chunks[str(chunk_idx)] = {"msg_id": None, "size": len(plaintext_data), "cached": True}
-                        await file.save(update_fields=['chunks'])
-                        logger.info(f"Chunk {chunk_idx} of file {file_id_str} stored in cache after failed uploads.")
-                    except DoesNotExist:
-                        logger.warning(f"File {file_id_str} was deleted before chunk {chunk_idx} could be cached.")
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Critical error in upload worker: {e}", exc_info=True)
-                if 'chunk_idx' in locals():
-                    await self.upload_queue.put((file_id_str, chunk_idx))
-            finally:
+    async def discord_ranged_download(self,file:File,download_range:list[int]):
+        s_byte,e_byte=download_range
+        if not file.size or s_byte>=file.size:return b""
+        if e_byte>=file.size:e_byte=file.size-1
+        s_chunk,e_chunk=s_byte//self.chunk_size,e_byte//self.chunk_size
+        buf=io.BytesIO()
+        for i in range(s_chunk,e_chunk+1):
+            chunk_data=await self._fetch_chunk_from_source(file,i)
+            s_in=s_byte%self.chunk_size if i==s_chunk else 0
+            e_in=(e_byte%self.chunk_size)+1 if i==e_chunk else self.chunk_size
+            buf.write(chunk_data[s_in:e_in])
+        return buf.getvalue()
+
+    async def discord_discard(self,file:File,size:int,offset:int):
+        s_chunk,e_chunk=offset//self.chunk_size,(offset+size-1)//self.chunk_size
+        for i in range(s_chunk,e_chunk+1):
+            self.read_cache.pop(self._get_cache_key(file.id,i),None)
+            p=self._chunk_cache_path(str(file.id),i)
+            if os.path.exists(p):
                 try:
-                    self.upload_queue.task_done()
-                except Exception:
-                    pass
+                    sz = os.path.getsize(p)
+                    os.remove(p)
+                    self._current_usage -= sz
+                except: pass
+
+    def _get_cache_key(self,file_id:Any,chunk_idx:int)->str:
+        return f"{str(file_id)}__{chunk_idx}"
+
+    def _chunk_cache_path(self,file_id:str,idx:int)->str:
+        return os.path.join(config.Cache.DIR,f"{file_id}__{idx}.chunk")
+
+    async def start(self):
+        self._uploader_task=asyncio.create_task(self._upload_worker())
+        self._db_worker_task=asyncio.create_task(self._db_background_worker())
+        await self.bot.start(self.token)
 
     async def on_ready(self):
-        chan = self.bot.get_channel(self.upload_channel)
-        if chan is None: chan = await self.bot.fetch_channel(self.upload_channel)
-        if not isinstance(chan, discord.TextChannel): raise Exception("Channel must be a TextChannel.")
-        self.channel = chan
-        logger.info(f"Discord bot ready as {self.bot.user}")
+        self.channel=self.bot.get_channel(self.upload_channel) or await self.bot.fetch_channel(self.upload_channel)
+        logger.info(f"Bot Active: {self.bot.user}")
+
+    async def wait_for_uploads(self):
+        await self.upload_queue.join()
+        await self.db_queue.join()
+
+    async def close(self):
+        if self._uploader_task: self._uploader_task.cancel()
+        if self._db_worker_task: self._db_worker_task.cancel()
+        await self.bot.close()
