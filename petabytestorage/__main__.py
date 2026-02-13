@@ -1,14 +1,16 @@
 # __main__.py
-from uuid import UUID
-import json
-import asyncio
 import io
+import os
+import secrets
+import bcrypt
+import asyncio
+from uuid import UUID
 from fastapi import APIRouter, FastAPI, Request, UploadFile, Form, Depends, HTTPException
-from fastapi.responses import PlainTextResponse, StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
 from uvicorn import Config, Server
 from starlette.middleware.sessions import SessionMiddleware
-from typing import Any
 from tortoise import Tortoise
+
 from .models import Folder, File, User
 from .api_models import Signup, Login
 from .globals import logger, AUTHTOKENS
@@ -16,9 +18,6 @@ from .utils import get_at_path
 from .consts import NULL_UUID
 from .bot import UploadBot
 from . import config
-import os
-import bcrypt
-import secrets
 
 bot = UploadBot(config.Upload.Discord.UPLOAD_CHANNEL_ID, config.Upload.Discord.TOKEN, config.Upload.CHUNK_SIZE)
 app = FastAPI()
@@ -49,6 +48,7 @@ async def fs_read(path: str, size: int, offset: int, user: User = Depends(get_cu
 
 @api_router.post("/fs/flush")
 async def fs_flush(path: str = Form(...), user: User = Depends(get_current_user)):
+    # Wait for Discord uploads AND the background SQLite DB worker to finish
     await bot.wait_for_uploads()
     return {"status": "ok"}
 
@@ -78,31 +78,20 @@ async def fs_create(path: str = Form(...), user: User = Depends(get_current_user
         await parent.save(update_fields=['files'])
     return {"status": "ok"}
 
-@api_router.post("/register", tags=["Authentication"])
+@api_router.post("/register")
 async def register(signup: Signup):
-    if not config.Auth.REGISTRATION_ENABLED: return PlainTextResponse("Registration is disabled.", 403)
-    if not (signup.email and signup.password and signup.terms_accepted): return PlainTextResponse("Missing required fields.", 400)
-    from .utils import validate_email
-    if not validate_email(signup.email): return PlainTextResponse("Email must be a valid email.", 400)
-    if await User.filter(email=signup.email).exists(): return PlainTextResponse("User already exists", 400)
-    
+    if not config.Auth.REGISTRATION_ENABLED: return PlainTextResponse("Disabled", 403)
+    if await User.filter(email=signup.email).exists(): return PlainTextResponse("Exists", 400)
     salt = bcrypt.gensalt()
     root_folder = await Folder.create(name="root", files={}, parent=NULL_UUID)
-    await User.create(email=signup.email, password=bcrypt.hashpw(signup.password.encode("utf-8"), salt), salt=salt, root_folder=root_folder.id, api_keys=[])
-    
-    if config.Auth.ONE_ACCOUNT_MODE:
-        user_count = await User.all().count()
-        if user_count >= 1:
-            logger.info("One Account Mode: First user registered. Sealing the blast doors. Disabling all future registrations.")
-            config.Auth.REGISTRATION_ENABLED = False
-            
-    return PlainTextResponse("Account created successfully!", 200)
+    await User.create(email=signup.email, password=bcrypt.hashpw(signup.password.encode("utf-8"), salt), salt=salt, root_folder=root_folder.id)
+    return PlainTextResponse("Ok", 200)
 
-@api_router.post("/login", tags=["Authentication"])
+@api_router.post("/login")
 async def login(request: Request, login: Login):
     user = await User.filter(email=login.email).first()
-    if not user or not bcrypt.hashpw(login.password.encode('utf-8'), user.salt) == user.password:
-        return JSONResponse({"error": "Invalid username or password!"}, status_code=403)
+    if not user or not bcrypt.checkpw(login.password.encode('utf-8'), user.password):
+        return JSONResponse({"error": "Invalid credentials"}, status_code=403)
     token = secrets.token_hex(32)
     AUTHTOKENS[token] = user.id
     request.session["token"] = token
@@ -114,20 +103,19 @@ async def main():
     try:
         await Tortoise.init(db_url='sqlite://db.sqlite3', modules={'models': ['petabytestorage.models']})
         await Tortoise.generate_schemas()
-        conf = Config(app=app, host=config.Network.HOST, port=config.Network.PORT, timeout_keep_alive=120)
+        conf = Config(app=app, host=config.Network.HOST, port=int(config.Network.PORT), timeout_keep_alive=120)
         server = Server(conf)
         bot_task = asyncio.create_task(bot.start())
         server_task = asyncio.create_task(server.serve())
         await asyncio.gather(bot_task, server_task)
     except Exception as e:
-        logger.error(f"Main application error: {e}", exc_info=True)
+        logger.error(f"Main error: {e}", exc_info=True)
     finally:
-        if bot.bot.is_ready():
-            await bot.close()
+        await bot.close()
         await Tortoise.close_connections()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Server shutting down.")
+        pass
