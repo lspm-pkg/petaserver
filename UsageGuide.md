@@ -15,7 +15,7 @@ For server and client:
 - UV (download from Astral)
 
 For client:
-- nbdkit
+- nbdkit (If using debian)
 - qemu-utils (exclude If using proxmox)
 - libfuse-dev
 
