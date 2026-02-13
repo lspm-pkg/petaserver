@@ -1,7 +1,11 @@
 # [ Discord stuff ] #
 
 DISCORD_BOT_TOKEN=""
+
+# JWT something, I forgot.
+# Use openssl rand -hex 32
 SESSION_SECRET=
 
 # [ This must be in hex/32-byte ] #
+# Use this: openssl rand -hex 32
 ENCRYPTION_KEY=
