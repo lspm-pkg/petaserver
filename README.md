@@ -3,6 +3,8 @@
 ---
 > [!IMPORTANT]
 > This branch is in beta, you may see some stablity issues.
+> 
+> This branch has backwards support for the current v2 petaclient.
 >
 > Also the changes in this branch are:
 >
