@@ -3,10 +3,15 @@
 ---
 > [!IMPORTANT]
 > This branch is in beta, you may see some instablity issues.
+>
 > Also the changes in this branch are:
+>
 > \- Speed differences.
+> 
 > \- Way better support for networks with higher and lower ping.
+>
 > \- Better stablity, still in heavy testing.
+>
 > \- Better limiting for cache, etc.
 ---
 
