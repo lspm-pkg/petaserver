@@ -6,15 +6,15 @@
 >
 > Also the changes in this branch are:
 >
-> \- Speed differences.
+> - Speed differences.
 > 
-> \- Way better support for networks with higher and lower ping.
+> - Way better support for networks with higher and lower ping.
 >
-> \- Better stablity, still in heavy testing.
+> - Better stablity, still in heavy testing.
 >
-> \- Better limiting for cache, etc.
+> - Better limiting for cache, etc.
 > 
-> \- Support for arch linux & alpine linux
+> - Support for arch linux & alpine linux
 ---
 
 ## How does it work
