@@ -1,6 +1,9 @@
 # Peta Server
 > Unlimited Discord Storage (up to 1.7PB**) as a API Endpoint
->> This is not being worked on as of 2026-01-26, as the code base is hard to work on.
+---
+> [!!IMPORTANT]
+> A v3 of this is being worked on, you can see it's progress in the [v3] branch.
+> The new branch is open to issues and pull requests; you are free to help us there.
 ---
 
 ## How does it work
