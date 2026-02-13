@@ -3,5 +3,5 @@
 DISCORD_BOT_TOKEN=""
 SESSION_SECRET=
 
-# [ This must be in base 16 ] #
+# [ This must be in hex/32-byte ] #
 ENCRYPTION_KEY=
