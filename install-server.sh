@@ -13,7 +13,6 @@ fi
 
 . /etc/os-release
 
-# Determine OS package commands
 case "$ID" in
   debian|ubuntu|pve|proxmox)
     UPDATE_CMD="apt-get update"
@@ -33,8 +32,6 @@ case "$ID" in
     exit 1
     ;;
 esac
-
-# Detect init system
 if command -v systemctl &>/dev/null; then
     INIT_SYSTEM="systemd"
 elif command -v rc-status &>/dev/null || [ -f /sbin/openrc ]; then
@@ -46,8 +43,6 @@ else
 fi
 
 echo "Detected init system: $INIT_SYSTEM"
-
-# Install uv if missing
 if ! command -v /root/.local/bin/uv &>/dev/null; then
     echo "uv not found, installing via Astral..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -57,11 +52,9 @@ source /root/.local/bin/env
 
 echo "Updating package database..."
 $UPDATE_CMD
-
 echo "Installing dependencies..."
 $INSTALL_CMD
 
-# Clone petaserver repo
 cd /
 if [ ! -d "petaserver" ]; then
     git clone https://github.com/lspm-pkg/petaserver.git
@@ -78,7 +71,6 @@ read
 nano /petaserver/config.toml /petaserver/.env
 sleep 1
 
-# Create service based on init system
 case "$INIT_SYSTEM" in
     systemd)
         cat <<EOF >/etc/systemd/system/petaserver.service
