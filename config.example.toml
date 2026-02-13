@@ -16,14 +16,24 @@ dir = "petafuse_cache"
 # Description: The maximum number of chunks to hold in the super-fast in-memory RAM cache.
 # Matters: A larger cache means more frequent reads can be served directly from RAM, boosting performance for recently or frequently accessed data.
 # Disclaimers: Each chunk consumes RAM equal to your `chunk_size`. (e.g., 128 * 8MiB = 1GiB). Do not set this higher than your available memory.
-# Default: 128
-in_memory_chunk_limit = 128
+# Note: This DOES NOT prevent the petaserver from using 50% of your RAM when the cache is full.
+# Default: 192
+
+in_memory_chunk_limit = 192
 
 # Description: The compression level for Zstandard when preparing chunks for upload.
 # Matters: Balances upload speed (CPU usage) against storage efficiency in Discord. Higher levels are smaller but require more CPU.
-# Disclaimers: Level 3 is a fantastic balance of speed and compression ratio.
-# Default: 3
-compression_level = 3
+# Disclaimers: Level 18 is a fantastic balance of speed and compression ratio.
+# Default: 18
+compression_level = 18
+
+# Description: The size of the cache. This is the fundamental for the speed of your storage.
+# Note:
+# Incase you get the cache full, and you have extra space.
+# You can stop the service and change this, this doesn't use storage upfront.
+# Disclaimers: Once full, your RAM will be used and you will have a speed crises.
+# Default: 10.0 (GB)
+cache_size_gb = 10.0
 
 [uploads]
 # Description: The size of each data chunk. This is the fundamental block size of your disk.
