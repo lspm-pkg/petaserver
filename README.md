@@ -3,8 +3,6 @@
 ---
 > [!IMPORTANT]
 > This branch is in beta, you may see some stablity issues.
-> 
-> This branch has backwards support for the current v2 petaclient.
 >
 > Also the changes in this branch are:
 >
@@ -19,6 +17,11 @@
 > - Support for arch linux & alpine linux
 >
 > - Support for NBD Multithreading (huge performance boost)
+---
+> [!INFO]
+>
+> This branch has backwards support for the current v2 petaclient,
+> However you should use the v3 petaclient for better performance as it supports NBD Multithreading.
 ---
 
 ## How does it work
