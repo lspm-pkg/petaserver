@@ -17,6 +17,8 @@
 > - Better limiting for cache, etc.
 > 
 > - Support for arch linux & alpine linux
+>
+> - Support for NBD Multithreading (huge performance boost)
 ---
 
 ## How does it work
