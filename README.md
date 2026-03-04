@@ -1,27 +1,23 @@
 # Peta Server
-> Unlimited Discord Storage (up to 1.7PB**) as a API Endpoint
----
+Unlimited Discord Storage (up to 1.7PB**) as a API Endpoint
+
 > [!IMPORTANT]
-> This branch is in beta, you may see some stablity issues.
->
-> Also the changes in this branch are:
->
-> - Speed differences.
 > 
-> - Way better support for networks with higher and lower ping.
+> This branch is experimental and may be unstable. Expect bugs and breaking changes. Key improvements in this branch:
 >
-> - Better stablity, still in heavy testing.
->
-> - Better limiting for cache, etc.
+> - Speed improvements.
+> - Better handling for networks with high or low ping.
+> - Improved stability, still under heavy testing.
+> - Better cache controls.
+> - Support for Arch Linux and Alpine Linux.
+> - Support for NBD multithreading, huge performance boost.
+
+> [!NOTE]
 > 
-> - Support for arch linux & alpine linux
->
-> - Support for NBD Multithreading (huge performance boost)
----
-> [!INFO]
->
-> This branch has backwards support for the current v2 petaclient,
-> However you should use the v3 petaclient for better performance as it supports NBD Multithreading.
+> Backwards compatibility with the current v2 petaclient exists,
+> 
+> However, use v3 for best performance as v3 supports NBD multithreading.
+
 ---
 
 ## How does it work
