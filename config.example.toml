@@ -1,5 +1,5 @@
 [network]
-# Description: Network configuration for the PetaByte server.
+# Description: Network configuration for the Peta Server.
 # Matters: Defines where the server listens for connections from the client.
 # Disclaimers: Use 0.0.0.0 for external access, or 127.0.0.1 for local-only.
 # Default: "0.0.0.0", 7004
@@ -11,7 +11,7 @@ port = 7004
 # Matters: This is the high-speed I/O cache. Ensure this path is on a fast drive (like an SSD/NVMe) for maximum performance.
 # Disclaimers: The server process needs full read/write permissions to this directory.
 # Default: "petafuse_cache"
-dir = "petafuse_cache"
+dir = "petacache"
 
 # Description: The maximum number of chunks to hold in the super-fast in-memory RAM cache.
 # Matters: A larger cache means more frequent reads can be served directly from RAM, boosting performance for recently or frequently accessed data.
@@ -48,7 +48,7 @@ chunk_size = 8388608
 # Description: The Discord channel ID where all the data chunks will be permanently archived.
 # Matters: This is the backing storage for your entire virtual disk. It is critical.
 # Disclaimers: MUST be a Text Channel ID. The bot needs full permissions.
-channel_id = 1440814868922896434
+channel_id = 00000000000000000000
 
 [auth]
 # Description: Allows or disables new user registration via the API.
