@@ -160,4 +160,6 @@ EOF
         ;;
 esac
 
+echo
 echo "Deployment finished."
+echo "You can now start configuring the client using install-client.sh included in the repo." 
