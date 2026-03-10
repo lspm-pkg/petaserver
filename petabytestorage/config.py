@@ -19,6 +19,9 @@ class Network:
     HOST: str = config["network"].get("host", "0.0.0.0")
     PORT: int = config["network"].get("port", 8080)
 
+class Database:
+    URL: str = cast(str, os.getenv("MARIADB_URL"))
+
 class Upload:
     CHUNK_SIZE: int = cast(int, config["uploads"].get("chunk_size", 8388608))
     class Discord:
@@ -35,7 +38,6 @@ class Cache:
     DEBOUNCE_SECONDS: float = config["cache"].get("debounce_seconds", 0.5)
     IN_MEMORY_CHUNK_LIMIT: int = config["cache"].get("in_memory_chunk_limit", 128)
     COMPRESSION_LEVEL: int = config["cache"].get("compression_level", 3)
-    # New: Fixed Cache Size Logic
     SIZE_GB: float = float(config["cache"].get("cache_size_gb", 10.0))
     SIZE_BYTES: int = int(SIZE_GB * 1024**3)
 
@@ -43,3 +45,4 @@ if not Upload.Discord.TOKEN: raise RuntimeError("Missing DISCORD_BOT_TOKEN")
 if not Upload.Discord.UPLOAD_CHANNEL_ID: raise RuntimeError("Missing DISCORD_UPLOAD_CHANNEL_ID")
 if not SESSION_SECRET: raise RuntimeError("Missing SESSION_SECRET")
 if not ENCRYPTION_KEY: raise RuntimeError("Missing ENCRYPTION_KEY")
+if not Database.URL: raise RuntimeError("Missing MARIADB_URL")
