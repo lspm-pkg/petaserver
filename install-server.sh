@@ -160,4 +160,4 @@ EOF
         ;;
 esac
 
-echo "Deployment finished. 12x Uvicorn workers are now live."
+echo "Deployment finished."
