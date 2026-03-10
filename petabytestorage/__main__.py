@@ -48,7 +48,6 @@ async def fs_read(path: str, size: int, offset: int, user: User = Depends(get_cu
 
 @api_router.post("/fs/flush")
 async def fs_flush(path: str = Form(...), user: User = Depends(get_current_user)):
-    # Wait for Discord uploads AND the background SQLite DB worker to finish
     await bot.wait_for_uploads()
     return {"status": "ok"}
 
@@ -101,9 +100,17 @@ app.include_router(api_router)
 
 async def main():
     try:
-        await Tortoise.init(db_url='sqlite://db.sqlite3', modules={'models': ['petabytestorage.models']})
+        await Tortoise.init(db_url=config.Database.URL, modules={'models': ['petabytestorage.models']})
         await Tortoise.generate_schemas()
-        conf = Config(app=app, host=config.Network.HOST, port=int(config.Network.PORT), timeout_keep_alive=120)
+        conf = Config(
+            app=app, 
+            host=config.Network.HOST, 
+            port=int(config.Network.PORT), 
+            timeout_keep_alive=60,
+            workers=12,
+            loop="uvloop",
+            http="httptools"
+        )
         server = Server(conf)
         bot_task = asyncio.create_task(bot.start())
         server_task = asyncio.create_task(server.serve())
@@ -112,7 +119,10 @@ async def main():
         logger.error(f"Main error: {e}", exc_info=True)
     finally:
         await bot.close()
-        await Tortoise.close_connections()
+        try:
+            await Tortoise.close_connections()
+        except:
+            pass
 
 if __name__ == "__main__":
     try:
