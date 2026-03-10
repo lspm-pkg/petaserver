@@ -9,3 +9,6 @@ SESSION_SECRET=
 # [ This must be in hex/32-byte ] #
 # Use this: openssl rand -hex 32
 ENCRYPTION_KEY=
+
+# [ MariaDB ]
+MARIADB_URL=
