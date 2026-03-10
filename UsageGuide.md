@@ -1,29 +1,14 @@
 # Peta Project - Client & Server Setup
 
-Unlimited Discord-backed storage, up to 1.7 PB, using PetaServer and PetaClient.
+The old legecy way of installing Peta Server/Client manually has been sunsetted and therefore, you have to use the included install scripts included in the repoistiory.
 
-This document assumes:
-- Linux (Debian/Ubuntu-style)
-- Root access
-- You know how to not brick your machine
-
----
-
-## Requirements
-
-For server and client:
-- UV (download from Astral)
-
-For client:
-- nbdkit (If using debian)
-- qemu-utils (exclude If using proxmox)
-- libfuse-dev
+It has been kept here, but It is not recommended to use. As It does not include mariadb setup and may contain broken dependencys and so on.
 
 ---
 
 ## Install Scripts:
 
-These are in beta. if there are issues with the script or you want to add an OS, please report them to the issues tab or contribute by making a pull request.
+If there are issues with the script or you want to add an OS, please report them to the issues tab or contribute by making a pull request.
 
 Also these are only for debian/ubuntu/proxmox.
 
@@ -38,6 +23,25 @@ bash <(curl -fsSL https://raw.githubusercontent.com/lspm-pkg/petaclient/main/ins
 ```
 
 ## Peta Server Setup
+
+---
+
+> [!IMPORTANT]
+> The old legecy way of installing Peta Server/Client manually has been sunsetted and therefore, you have to use the included install scripts included in the repoistiory.
+>
+> It has been kept here, but It is not recommended to use. As It does not include mariadb setup and may contain broken dependencys and so on.
+>
+> Please scroll up!
+
+## Requirements
+
+For server and client:
+- UV (download from Astral)
+
+For client:
+- nbdkit (If using debian)
+- qemu-utils (exclude If using proxmox)
+- libfuse-dev
 
 ### 1. Clone
 
