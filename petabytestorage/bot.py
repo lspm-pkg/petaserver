@@ -26,6 +26,8 @@ class UploadBot:
         self._current_usage = self._calculate_initial_usage()
         self.upload_semaphore = asyncio.Semaphore(20)
         self.db_batch = {}
+        self._uploader_task = None
+        self._db_worker_task = None
 
     def _calculate_initial_usage(self) -> int:
         total = 0
@@ -69,15 +71,15 @@ class UploadBot:
                 finally:
                     for _ in range(len(updates)): self.db_queue.task_done()
 
-    async def _upload_to_discord(self, file_id_str: str, chunk_idx: int, data: bytes):
+    async def _upload_to_discord(self, file_id_str: str, chunk_idx: int, compressed_data: bytes, original_size: int):
         async with self.upload_semaphore:
-            c_data = encrypt(self.zstd_cctx.compress(data))
+            payload = encrypt(compressed_data)
             for attempt in range(3):
                 try:
-                    msg = await self.channel.send(file=discord.File(fp=io.BytesIO(c_data), filename=secrets.token_urlsafe(16)))
+                    msg = await self.channel.send(file=discord.File(fp=io.BytesIO(payload), filename=secrets.token_urlsafe(16)))
                     fid = UUID(file_id_str)
                     if fid not in self.db_batch: self.db_batch[fid] = {}
-                    self.db_batch[fid][str(chunk_idx)] = {"msg_id": msg.id, "size": len(data)}
+                    self.db_batch[fid][str(chunk_idx)] = {"msg_id": msg.id, "size": original_size}
                     await self.db_queue.put(True)
                     return True
                 except: await asyncio.sleep(0.2 * attempt)
@@ -95,28 +97,34 @@ class UploadBot:
         await asyncio.gather(*tasks)
 
     async def _apply_chunk_patch(self, file, idx, patch_data, p_s, p_e):
-        chunk_data = bytearray(await self._fetch_chunk_from_source(file, idx))
-        chunk_data[p_s:p_e] = patch_data
-        final = bytes(chunk_data)
+        raw_chunk = bytearray(await self._fetch_chunk_from_source(file, idx))
+        raw_chunk[p_s:p_e] = patch_data
+        final_raw = bytes(raw_chunk)
+        compressed_payload = self.zstd_cctx.compress(final_raw)
         key = self._get_cache_key(file.id, idx)
-        self.read_cache[key] = final
+        self.read_cache[key] = final_raw
         self.read_cache.move_to_end(key)
         if len(self.read_cache) > config.Cache.IN_MEMORY_CHUNK_LIMIT: self.read_cache.popitem(last=False)
         path = self._chunk_cache_path(str(file.id), idx)
-        if self._current_usage + len(final) > config.Cache.SIZE_BYTES: self._evict_disk_cache(len(final))
-        async with aiofiles.open(path, "wb") as f: await f.write(final)
-        if not os.path.exists(path): self._current_usage += len(final)
-        await self.upload_queue.put((str(file.id), idx))
+        new_size = len(compressed_payload)
+        old_size = os.path.getsize(path) if os.path.exists(path) else 0
+        if self._current_usage - old_size + new_size > config.Cache.SIZE_BYTES:
+            self._evict_disk_cache(new_size)
+        async with aiofiles.open(path, "wb") as f: 
+            await f.write(compressed_payload)
+        self._current_usage = self._current_usage - old_size + new_size
+        await self.upload_queue.put((str(file.id), idx, len(final_raw)))
 
     async def _upload_worker(self):
         await self.bot.wait_until_ready()
         while True:
-            fid, idx = await self.upload_queue.get()
+            fid, idx, orig_size = await self.upload_queue.get()
             try:
                 p = self._chunk_cache_path(fid, idx)
                 if os.path.exists(p):
-                    async with aiofiles.open(p, "rb") as f: d = await f.read()
-                    await self._upload_to_discord(fid, idx, d)
+                    async with aiofiles.open(p, "rb") as f: 
+                        compressed_data = await f.read()
+                    await self._upload_to_discord(fid, idx, compressed_data, orig_size)
             finally: self.upload_queue.task_done()
 
     async def _fetch_chunk_from_source(self, file: File, chunk_idx: int) -> bytes:
@@ -128,17 +136,21 @@ class UploadBot:
         if os.path.exists(path):
             os.utime(path, None)
             async with aiofiles.open(path, "rb") as f:
-                data = await f.read()
+                compressed_data = await f.read()
+                data = self.zstd_dctx.decompress(compressed_data)
                 self.read_cache[key] = data
                 return data
         cmeta = file.chunks.get(str(chunk_idx))
         if cmeta and cmeta.get("msg_id"):
             try:
                 msg = await self.channel.fetch_message(cmeta["msg_id"])
-                data = self.zstd_dctx.decompress(decrypt(await msg.attachments[0].read()))
-                if self._current_usage + len(data) > config.Cache.SIZE_BYTES: self._evict_disk_cache(len(data))
-                async with aiofiles.open(path, "wb") as f: await f.write(data)
-                self._current_usage += len(data)
+                compressed_payload = decrypt(await msg.attachments[0].read())
+                if self._current_usage + len(compressed_payload) > config.Cache.SIZE_BYTES:
+                    self._evict_disk_cache(len(compressed_payload))
+                async with aiofiles.open(path, "wb") as f: 
+                    await f.write(compressed_payload)
+                self._current_usage += len(compressed_payload)
+                data = self.zstd_dctx.decompress(compressed_payload)
                 self.read_cache[key] = data
                 return data
             except: pass
