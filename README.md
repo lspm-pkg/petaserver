@@ -11,6 +11,7 @@ Unlimited Discord Storage (up to 1.7PB**) as a API Endpoint
 > - Better cache controls.
 > - Support for Arch Linux and Alpine Linux.
 > - Support for NBD multithreading, huge performance boost.
+> - Support for Realtime Compression, huge cache speedboost.
 
 > [!NOTE]
 > 
